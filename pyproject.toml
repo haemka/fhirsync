@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=65.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fhir-sync"
+version = "0.6.0"
+description = "FHIR synchronization tool"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fhir.resources~=8.0.0",
+    "dic-helper-toolkit~=0.7.0",
+    "paho-mqtt~=2.1.0"
+]
+
+[project.scripts]
+fhirsync = "sync:run"
+
+[tool.setuptools]
+packages = {find = {}}
+
+# GitLab package registry configuration
+[tool.uv.sources]
+dic-helper-toolkit = { index = "gitlab" }
+
+[[tool.uv.index]]
+name = "gitlab"
+url = "https://git.smith.care/api/v4/projects/354/packages/pypi/simple"
