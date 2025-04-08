@@ -1,14 +1,11 @@
 import json
 import logging
+import paho.mqtt.client as mqtt
 from configparser import ConfigParser
 from ssl import CERT_REQUIRED
 from typing import Dict, Any, List
-
-import paho.mqtt.client as mqtt
-
 from sync.bundler import ResourceBundler
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 

@@ -7,7 +7,9 @@ from sync.syncer import ConsentSyncer
 from sync.bundler import ResourceBundler
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(format='%(asctime)s %(levelname)-8s %(name)s: %(message)s',
+                    level=logging.INFO,
+                    datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -30,6 +32,7 @@ def run():
         syncer = ConsentSyncer(bundler, config)
     else:
         bundler.fetch_resources(args.query)
+
 
 if __name__ == '__main__':
     run()

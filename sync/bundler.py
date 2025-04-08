@@ -10,7 +10,6 @@ from fhir.resources.R4B.resource import Resource
 from fhir.resources.R4B.bundle import Bundle, BundleEntry, BundleEntryRequest
 from fhir.resources.R4B.identifier import Identifier
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
