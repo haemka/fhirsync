@@ -111,6 +111,7 @@ class ConsentSyncer(ResourceSyncer):
         :param message: A dictionary containing the message data.
         :type message: Dict[str, Any]
         """
+        #if message.get("data", {}) == "GICS.SetQcForConsent":
         consent_key: Dict[str, Any] = json.loads(message.get("data", "{}")).get("consentKey", {})
         consent_template_key: str = consent_key.get("consentTemplateKey", "{}").get("domainName")
         signer_ids: List[Dict[str, str]] = consent_key.get("signerIds")

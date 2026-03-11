@@ -54,6 +54,9 @@ class ResourceBundler:
             search_resource_type = search_path
             params = self.get_request_params(search_resource_type)
         for bundle in self.source_client.search(search_resource_type, params=params):
+            if bundle.entry is None:
+                logger.debug(f"Ignoring empty bundle with id {bundle.id}")
+                continue
             logger.debug(f"Fetched a bundle with {bundle.total} entries.")
 
             current_bundle = None
@@ -171,8 +174,11 @@ class ResourceBundler:
         """
         logger.info(f"Processing entry {entry.resource.get_resource_type()}/{entry.resource.id}")
         for resource in self.process_resource(entry.resource):
-            request = self.create_entry_request(resource)
-            yield BundleEntry(resource=resource, request=request)
+            if not resource.get_resource_type() == "OperationOutcome":
+                request = self.create_entry_request(resource)
+                yield BundleEntry(resource=resource, request=request)
+            else:
+                logger.warning(resource.diagnostics)
 
     def process_resource(self, resource: Resource) -> Iterator[Resource]:
         """
@@ -184,6 +190,11 @@ class ResourceBundler:
         :rtype: Iterator[Resource]
         """
         logger.info(f"Processing resource {resource.get_resource_type()}/{resource.id}")
+
+        if resource.get_resource_type() == "OperationOutcome":
+            for issue in resource.issue:
+                logger.warning(f"OperationOutcome: {issue.severity} - {issue.diagnostics}")
+            return
 
         if resource.get_resource_type() == 'Consent' and self.contains_category_coding(resource, target_system="http://loinc.org", target_code="59284-0"):
             logger.warning(f"Resource {resource.get_resource_type()}/{resource.id} has a category.coding for "
@@ -450,7 +461,14 @@ class ResourceBundler:
         :return: Updated FHIR resource with new source.
         :rtype: Resource
         """
-        resource.meta.source = source
+        try:
+            resource.meta.source = source
+        except AttributeError as e:
+            logger.error(e)
+            print(resource)
+            print(resource.get_resource_type())
+            print(resource.model_dump_json())
+            print("---Error Breakpoint---")
         return resource
 
     def create_entry_request(self, resource: Resource) -> BundleEntryRequest:
