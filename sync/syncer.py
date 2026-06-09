@@ -7,7 +7,7 @@ from typing import Dict, Any, List
 from sync.bundler import ResourceBundler
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 class ResourceSyncer:
@@ -112,14 +112,30 @@ class ConsentSyncer(ResourceSyncer):
         :type message: Dict[str, Any]
         """
         #if message.get("data", {}) == "GICS.SetQcForConsent":
-        consent_key: Dict[str, Any] = json.loads(message.get("data", "{}")).get("consentKey", {})
-        consent_template_key: str = consent_key.get("consentTemplateKey", "{}").get("domainName")
-        signer_ids: List[Dict[str, str]] = consent_key.get("signerIds")
-        if consent_template_key and signer_ids:
-            for signer_id in signer_ids:
-                if signer_id:
-                    self.fetch_fhir_consents(sid=signer_id.get("id"), sid_type=signer_id.get("idType"),
-                                             consent_template_key=consent_template_key)
+        logger.debug(f"Received message: {message}")
+        message_data: Dict[str, Any] = json.loads(message.get("data", {}))
+        if message_data.get('type') == "GICS.policyValidityStatusChanged":
+            affectedPolicies = message_data.get("affectedPolicies")
+            signerIds = []
+            for ap in affectedPolicies:
+                signerIds.append(f"{ap.get("signerIdType")} {ap.get("signerId")}")
+            logger.debug(f"Ignoring {message_data.get("type")} for {','.join(signerIds)}")
+        else:
+            consent_key: Dict[str, Any] = message_data.get("consentKey", {})
+            logger.debug(f"Consent key is {consent_key}")
+            consent_template_key: str = consent_key.get("consentTemplateKey", "{}").get("domainName")
+            logger.debug(f"Consent template key is {consent_template_key}")
+            signer_ids: List[Dict[str, str]] = consent_key.get("signerIds")
+            logger.debug(f"Signer IDs are {signer_ids}")
+            if consent_template_key and signer_ids:
+                for signer_id in signer_ids:
+                    if signer_id and 'context' in message_data:
+                        if message_data.get("context").get("qc").get("qcPassed"):
+                            self.fetch_fhir_consents(sid=signer_id.get("id"), sid_type=signer_id.get("idType"),
+                                                 consent_template_key=consent_template_key)
+                        else:
+                            #TODO: deletion of invalidated or otherwise invalid Consent resources.
+                            logger.info(f"Consent QC is not passed with type '{message_data.get("context").get("qc").get("type")}'.")
 
     def fetch_fhir_consents(self, sid: str, sid_type: str, consent_template_key: str) -> None:
         """

@@ -5,10 +5,13 @@ import hashlib
 from configparser import ConfigParser
 from typing import List, Dict, Any, Optional, Iterator
 from configparser import ConfigParser
+
+import requests.exceptions
 from dic_helpers.fhir_client import FHIRClient
 from fhir.resources.R4B.resource import Resource
 from fhir.resources.R4B.bundle import Bundle, BundleEntry, BundleEntryRequest
 from fhir.resources.R4B.identifier import Identifier
+from requests import HTTPError
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -25,19 +28,29 @@ class ResourceBundler:
     def __init__(self, config: ConfigParser) -> None:
         self.config = config
         self.source_client = FHIRClient(base_url=self.config.get('source', 'base_url'),
-                                        username=self.config.get('source', 'username'),
-                                        password=self.config.get('source', 'password'),
-                                        auth_url=self.config.get('source', 'auth_url'),
-                                        realm=self.config.get('source', 'realm'),
-                                        client_id=self.config.get('source', 'client_id'),
-                                        client_secret=self.config.get('source', 'client_secret'),
-                                        ca_file=self.config.get('common', 'ca_file'),
-                                        next_param=self.config.get('source', 'next_param'))
+                                        username=self.config.get('source', 'username', fallback=None),
+                                        password=self.config.get('source', 'password', fallback=None),
+                                        auth_url=self.config.get('source', 'auth_url', fallback=None),
+                                        realm=self.config.get('source', 'realm', fallback=None),
+                                        client_id=self.config.get('source', 'client_id', fallback=None),
+                                        client_secret=self.config.get('source', 'client_secret', fallback=None),
+                                        ca_file=self.config.get('source', 'ca_file', fallback=self.config.get(
+                                            'common', 'ca_file', fallback=None)),
+                                        next_param=self.config.get('source', 'next_param', fallback=None))
         if self.config.get('target', 'mode') == "server":
             self.target_client = FHIRClient(base_url=self.config.get('target', 'base_url'),
-                                            username=self.config.get('target', 'username'),
-                                            password=self.config.get('target', 'password'),
-                                            ca_file=self.config.get('common', 'ca_file'))
+                                            username=self.config.get('target', 'username', fallback=None),
+                                            password=self.config.get('target', 'password', fallback=None),
+                                            auth_url=self.config.get('target', 'auth_url', fallback=None),
+                                            realm=self.config.get('target', 'realm', fallback=None),
+                                            client_id=self.config.get('target', 'client_id', fallback=None),
+                                            client_secret=self.config.get('target', 'client_secret', fallback=None),
+                                            ca_file=self.config.get('target', 'ca_file', fallback=self.config.get(
+                                                'common', 'ca_file', fallback=None)))
+        self.identifiers = dict(pair.split("=", 1) for pair in self.config.get(
+            'bundling', 'identifier_systems', fallback="").split(","))
+        logger.info(f"Identifiers:\n" + "\n".join(f"  {k} = {v}" for k, v in self.identifiers.items()))
+
 
     def fetch_resources(self, search_path: str) -> None:
         """
@@ -81,7 +94,7 @@ class ResourceBundler:
 
                 if max_bundle_size > 0 and (num + 1) % max_bundle_size == 0 and len(current_bundle.entry) > 0:
                     current_bundle = self.post_process_bundle(current_bundle)
-                    logger.debug(f"Sending bundle {num} to ouput.")
+                    logger.debug(f"Sending bundle {num} to output.")
                     self._handle_bundle_output(current_bundle)
                     current_bundle = None
 
@@ -114,9 +127,9 @@ class ResourceBundler:
         if not os.path.exists(outdir):
             os.mkdir(outdir)
         if len(bundle.entry) > 0:
-            logger.info(f"Writing bundle with {len(bundle.entry)} entries to file.")
-            with open(os.path.join(outdir, f'{bundle.identifier.value}.json'), 'w',
-                      encoding='utf-8') as outfile:
+            path = os.path.join(outdir, f'{bundle.identifier.value}.json')
+            logger.info(f"Writing bundle with {len(bundle.entry)} entries to file {path}.")
+            with open(path, 'w', encoding='utf-8') as outfile:
                 outfile.truncate(0)
                 outfile.write(bundle.model_dump_json())
         else:
@@ -132,7 +145,13 @@ class ResourceBundler:
        """
         logger.info(f"Sending bundle with {len(bundle.entry)} entries to target server at "
                     f"{self.target_client.base_url}...")
-        r = self.target_client.post_bundle(bundle)
+        try:
+            r = self.target_client.post_bundle(bundle)
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                logger.warning(f"No matching Patient found on target server!")
+            else:
+                raise requests.exceptions.HTTPError(e)
 
     def post_process_bundle(self, bundle: Bundle) -> Bundle:
         """
@@ -220,19 +239,19 @@ class ResourceBundler:
 
         if resource.get_resource_type() == 'Consent':
             pat_id = resource.patient.display.split(' ', 1)[1]
-            resource.patient.reference = f"Patient?identifier=http://www.uniklinikum-jena.de/fhir/sid/patient|{pat_id}"
+            resource.patient.reference = f"Patient?identifier={self.identifiers['Patient']}|{pat_id}"
             # Create a static identifier
             organization = resource.organization[0].display
             policy = resource.policy[0].uri
             identifier_value = hashlib.sha256(str.encode(f"{organization}+{policy}+{pat_id}")).hexdigest()
             resource = self.add_identifier(resource,
-                                           identifier_system="http://www.uniklinikum-jena.de/fhir/sid/consent",
+                                           identifier_system=self.identifiers[resource.get_resource_type()],
                                            identifier_value=identifier_value)
             del resource.patient.display
 
         if resource.get_resource_type() == 'ResearchStudy':
             resource = self.add_identifier(resource,
-                                           identifier_system="http://www.uniklinikum-jena.de/fhir/sid/consentSource",
+                                           identifier_system=self.identifiers[resource.get_resource_type()],
                                            identifier_value=resource.id)
             resource.meta.profile[0] = "http://fhir.de/ConsentManagement/StructureDefinition/Domain/ResearchStudy"
 
@@ -465,10 +484,6 @@ class ResourceBundler:
             resource.meta.source = source
         except AttributeError as e:
             logger.error(e)
-            print(resource)
-            print(resource.get_resource_type())
-            print(resource.model_dump_json())
-            print("---Error Breakpoint---")
         return resource
 
     def create_entry_request(self, resource: Resource) -> BundleEntryRequest:

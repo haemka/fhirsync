@@ -1,4 +1,5 @@
 /config.ini
+/dev-config.ini
 /.idea
 
 ### PyCharm+iml template
@@ -1252,3 +1253,5 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+!/dev-config.ini
+!/dev-config.ini
