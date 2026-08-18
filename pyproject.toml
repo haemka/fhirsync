@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fhir-sync"
-version = "0.6.0"
+version = "0.6.1"
 description = "FHIR synchronization tool"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fhir.resources>=8.0.0",
-    "dic-helper-toolkit>=0.9.3",
+    "dic-helper-toolkit>=0.9.6",
     "paho-mqtt~=2.1.0"
 ]
 

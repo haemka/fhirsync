@@ -1,5 +1,7 @@
 import json
 import logging
+import re
+
 import paho.mqtt.client as mqtt
 from configparser import ConfigParser
 from ssl import CERT_REQUIRED
@@ -129,13 +131,16 @@ class ConsentSyncer(ResourceSyncer):
             logger.debug(f"Signer IDs are {signer_ids}")
             if consent_template_key and signer_ids:
                 for signer_id in signer_ids:
-                    if signer_id and 'context' in message_data:
-                        if message_data.get("context").get("qc").get("qcPassed"):
-                            self.fetch_fhir_consents(sid=signer_id.get("id"), sid_type=signer_id.get("idType"),
-                                                 consent_template_key=consent_template_key)
-                        else:
-                            #TODO: deletion of invalidated or otherwise invalid Consent resources.
-                            logger.info(f"Consent QC is not passed with type '{message_data.get("context").get("qc").get("type")}'.")
+                    if not re.fullmatch(r'^[0-9]{10}$', signer_id.get('id')):
+                        logger.warning(f"Invalid Signer ID: {signer_id.get('id')}. Must be exactly 10 digits.")
+                    else:
+                        if signer_id and 'context' in message_data:
+                            if message_data.get("context").get("qc").get("qcPassed"):
+                                self.fetch_fhir_consents(sid=signer_id.get("id"), sid_type=signer_id.get("idType"),
+                                                     consent_template_key=consent_template_key)
+                            else:
+                                #TODO: deletion of invalidated or otherwise invalid Consent resources.
+                                logger.info(f"Consent QC is not passed with type '{message_data.get("context").get("qc").get("type")}'.")
 
     def fetch_fhir_consents(self, sid: str, sid_type: str, consent_template_key: str) -> None:
         """
