@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [[package]]
@@ -92,7 +92,7 @@ wheels = [
 
 [[package]]
 name = "dic-helper-toolkit"
-version = "0.9.6"
+version = "0.9.7"
 source = { registry = "https://git.smith.care/api/v4/projects/354/packages/pypi/simple" }
 dependencies = [
     { name = "certifi" },
@@ -107,8 +107,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "typing-inspection" },
 ]
+sdist = { url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/files/2bc0684569ec4577a028895f0a5b10630603cbefccdac6723451c7c65be5fbcf/dic_helper_toolkit-0.9.7.tar.gz", hash = "sha256:2bc0684569ec4577a028895f0a5b10630603cbefccdac6723451c7c65be5fbcf" }
 wheels = [
-    { url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/files/bfeb5e9e3a08a3fc9c328b62ab27553f4aa9487936fdc52ccc1d68639f958b7a/dic_helper_toolkit-0.9.6-py3-none-any.whl", hash = "sha256:bfeb5e9e3a08a3fc9c328b62ab27553f4aa9487936fdc52ccc1d68639f958b7a" },
+    { url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/files/08e3d4df954c36288b4671c4977fbb4ec8bb0905ec7b1df5ad3a2c43b8634ea5/dic_helper_toolkit-0.9.7-py3-none-any.whl", hash = "sha256:08e3d4df954c36288b4671c4977fbb4ec8bb0905ec7b1df5ad3a2c43b8634ea5" },
 ]
 
 [[package]]
@@ -147,7 +148,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dic-helper-toolkit", specifier = ">=0.9.6", index = "https://git.smith.care/api/v4/projects/354/packages/pypi/simple" },
+    { name = "dic-helper-toolkit", specifier = ">=0.9.7", index = "https://git.smith.care/api/v4/projects/354/packages/pypi/simple" },
     { name = "fhir-resources", specifier = ">=8.0.0" },
     { name = "paho-mqtt", specifier = "~=2.1.0" },
 ]

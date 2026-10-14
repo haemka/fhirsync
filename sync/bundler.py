@@ -36,6 +36,9 @@ class ResourceBundler:
                                         client_secret=self.config.get('source', 'client_secret', fallback=None),
                                         ca_file=self.config.get('source', 'ca_file', fallback=self.config.get(
                                             'common', 'ca_file', fallback=None)),
+                                        rfc5280=self.config.getboolean(
+                                            'source', 'rfc5280', fallback=self.config.getboolean(
+                                                'common', 'rfc5280', fallback=None)),
                                         next_param=self.config.get('source', 'next_param', fallback=None))
         if self.config.get('target', 'mode') == "server":
             self.target_client = FHIRClient(base_url=self.config.get('target', 'base_url'),
@@ -45,8 +48,12 @@ class ResourceBundler:
                                             realm=self.config.get('target', 'realm', fallback=None),
                                             client_id=self.config.get('target', 'client_id', fallback=None),
                                             client_secret=self.config.get('target', 'client_secret', fallback=None),
-                                            ca_file=self.config.get('target', 'ca_file', fallback=self.config.get(
-                                                'common', 'ca_file', fallback=None)))
+                                            ca_file=self.config.get( 'target', 'ca_file', fallback=self.config.get(
+                                                'common', 'ca_file', fallback=None)),
+                                            rfc5280=self.config.getboolean(
+                                                'target', 'rfc5280', fallback=self.config.getboolean(
+                                                    'common', 'rfc5280', fallback=None)),
+                                            )
         self.identifiers = dict(pair.split("=", 1) for pair in self.config.get(
             'bundling', 'identifier_systems', fallback="").split(","))
         logger.info(f"Identifiers:\n" + "\n".join(f"  {k} = {v}" for k, v in self.identifiers.items()))

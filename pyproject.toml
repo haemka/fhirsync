@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fhir.resources>=8.0.0",
-    "dic-helper-toolkit>=0.9.6",
+    "dic-helper-toolkit>=0.9.7",
     "paho-mqtt~=2.1.0"
 ]
 
