@@ -1,16 +1,17 @@
 import os
+import re
 import uuid
 import logging
 import hashlib
 from configparser import ConfigParser
 from typing import List, Dict, Any, Optional, Iterator
-from configparser import ConfigParser
 
 import requests.exceptions
 from dic_helpers.fhir_client import FHIRClient
 from fhir.resources.R4B.resource import Resource
 from fhir.resources.R4B.bundle import Bundle, BundleEntry, BundleEntryRequest
 from fhir.resources.R4B.identifier import Identifier
+from fhir.resources.R4B.meta import Meta
 from requests import HTTPError
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,9 @@ class ResourceBundler:
 
     def __init__(self, config: ConfigParser) -> None:
         self.config = config
+        source_options = {}
+        if self.config.get('source', 'next_param', fallback=None):
+            source_options['next_param'] = self.config.get('source', 'next_param')
         self.source_client = FHIRClient(base_url=self.config.get('source', 'base_url'),
                                         username=self.config.get('source', 'username', fallback=None),
                                         password=self.config.get('source', 'password', fallback=None),
@@ -38,8 +42,8 @@ class ResourceBundler:
                                             'common', 'ca_file', fallback=None)),
                                         rfc5280=self.config.getboolean(
                                             'source', 'rfc5280', fallback=self.config.getboolean(
-                                                'common', 'rfc5280', fallback=None)),
-                                        next_param=self.config.get('source', 'next_param', fallback=None))
+                                                'common', 'rfc5280', fallback=True)),
+                                        **source_options)
         if self.config.get('target', 'mode') == "server":
             self.target_client = FHIRClient(base_url=self.config.get('target', 'base_url'),
                                             username=self.config.get('target', 'username', fallback=None),
@@ -52,12 +56,68 @@ class ResourceBundler:
                                                 'common', 'ca_file', fallback=None)),
                                             rfc5280=self.config.getboolean(
                                                 'target', 'rfc5280', fallback=self.config.getboolean(
-                                                    'common', 'rfc5280', fallback=None)),
+                                                    'common', 'rfc5280', fallback=True)),
                                             )
-        self.identifiers = dict(pair.split("=", 1) for pair in self.config.get(
-            'bundling', 'identifier_systems', fallback="").split(","))
+        self.ignored_references = [t.strip() for t in self.config.get(
+            'bundling', 'ignore_references', fallback="").split(',') if t.strip()]
+        self.reference_mode = self.config.get('bundling', 'reference_mode', fallback='identifier')
+        if self.reference_mode not in ('as_is', 'identifier'):
+            raise ValueError(f"Unsupported reference_mode '{self.reference_mode}' in [bundling]. "
+                             f"Supported values are 'as_is' and 'identifier'.")
+        self.bundle_identifier_system = self.config.get(
+            'bundling', 'bundle_identifier_system',
+            fallback="http://www.uniklinikum-jena.de/fhir/sid/consentBundle")
+        self.meta_source = self.config.get(
+            'bundling', 'meta_source', fallback="http://www.uniklinikum-jena.de/fhir/origin/gics")
+        self.identifiers = {}
+        for pair in self.config.get('bundling', 'identifier_systems', fallback="").split(","):
+            if not pair.strip():
+                continue
+            if "=" not in pair:
+                raise ValueError(f"Invalid entry '{pair.strip()}' in [bundling] identifier_systems. "
+                                 f"Expected <ResourceType>=<system>.")
+            resource_type, system = pair.split("=", 1)
+            self.identifiers[resource_type.strip()] = system.strip()
         logger.info(f"Identifiers:\n" + "\n".join(f"  {k} = {v}" for k, v in self.identifiers.items()))
+        self.validate_request_settings()
 
+    def validate_request_settings(self) -> None:
+        """
+        Validate all request_method and request_url settings in [bundling], including resource type specific ones.
+
+        :raises ValueError: If a setting has an unsupported value.
+        """
+        if not self.config.has_section('bundling'):
+            return
+        for option, value in self.config.items('bundling'):
+            if option == 'request_url' or option.startswith('request_url_'):
+                if value not in ('identifier', 'id'):
+                    raise ValueError(f"Unsupported value '{value}' for {option} in [bundling]. "
+                                     f"Supported values are 'identifier' and 'id'.")
+            elif option == 'request_method' or option.startswith('request_method_'):
+                method, _, condition = value.partition(':')
+                if method.lower() not in ('put', 'post'):
+                    raise ValueError(f"Unsupported request method '{method}' for {option} in [bundling]. "
+                                     f"Supported methods are 'put' and 'post'.")
+                if condition and not (method.lower() == 'post' and condition == 'ifNoneExist'):
+                    raise ValueError(f"Unsupported condition '{condition}' for {option} in [bundling]. "
+                                     f"Only 'post:ifNoneExist' is supported.")
+
+    def get_identifier_system(self, resource_type: str) -> str:
+        """
+        Get the configured identifier system for a resource type.
+
+        :param resource_type: The resource type to get the identifier system for.
+        :type resource_type: str
+        :return: The identifier system.
+        :rtype: str
+        :raises ValueError: If no identifier system is configured for the resource type.
+        """
+        try:
+            return self.identifiers[resource_type]
+        except KeyError:
+            raise ValueError(f"No identifier system configured for {resource_type}. Add "
+                             f"'{resource_type}=<system>' to identifier_systems in [bundling].") from None
 
     def fetch_resources(self, search_path: str) -> None:
         """
@@ -88,7 +148,7 @@ class ResourceBundler:
                     current_bundle = Bundle(
                         type=self.config.get('bundling', 'bundle_type'),
                         entry=[],
-                        identifier=Identifier(system="http://www.uniklinikum-jena.de/fhir/sid/consentBundle",
+                        identifier=Identifier(system=self.bundle_identifier_system,
                                               value=str(uuid.uuid4()))
                     )
 
@@ -153,12 +213,34 @@ class ResourceBundler:
         logger.info(f"Sending bundle with {len(bundle.entry)} entries to target server at "
                     f"{self.target_client.base_url}...")
         try:
-            r = self.target_client.post_bundle(bundle)
+            self.target_client.post_bundle(bundle)
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                logger.warning(f"No matching Patient found on target server!")
+            if e.response is not None and e.response.status_code == 404:
+                logger.warning(f"Target server returned 404 for bundle {bundle.identifier.value}, most likely because "
+                               f"a referenced Patient does not exist on the target. Server response: "
+                               f"{self._describe_error_response(e.response)}")
             else:
-                raise requests.exceptions.HTTPError(e)
+                raise
+
+    @staticmethod
+    def _describe_error_response(response: requests.Response) -> str:
+        """
+        Build a readable description of an error response, using the issues of an OperationOutcome if present.
+
+        :param response: The error response.
+        :type response: requests.Response
+        :return: A description of the error response.
+        :rtype: str
+        """
+        try:
+            body = response.json()
+        except ValueError:
+            return response.text[:500] or "<empty body>"
+        if isinstance(body, dict) and body.get("resourceType") == "OperationOutcome":
+            return "; ".join(f"{issue.get('severity')}: "
+                             f"{issue.get('diagnostics') or (issue.get('details') or {}).get('text')}"
+                             for issue in body.get("issue", []))
+        return response.text[:500]
 
     def post_process_bundle(self, bundle: Bundle) -> Bundle:
         """
@@ -186,7 +268,8 @@ class ResourceBundler:
         :rtype: Resource
         """
         del resource.id
-        del resource.meta.lastUpdated
+        if resource.meta is not None:
+            del resource.meta.lastUpdated
         return resource
 
     def process_entry(self, entry: BundleEntry) -> Iterator[BundleEntry]:
@@ -227,45 +310,71 @@ class ResourceBundler:
                            f"http://loinc.org with code '59284-0'. Ignoring this resource!")
             return
 
+        if resource.get_resource_type() == 'Consent':
+            pat_id = self.get_consent_patient_id(resource)
+            if pat_id is None:
+                return
+
         references = self.extract_references(resource)
         for reference in references:
-            ignored_references = list(self.config.get('bundling', 'ignore_references').split(','))
-            if reference.get('resource_type') not in ignored_references:
+            if reference.get('resource_type') not in self.ignored_references:
                 for referenced_resource in self.fetch_reference(reference):
                     for processed_reference_resource in self.process_resource(referenced_resource):
-                        if self.config.get('bundling', 'reference_mode') == 'identifier':
+                        if self.reference_mode == 'identifier':
                             if reference.get('type') != 'logical' or 'identifier' not in reference.get('params').keys():
                                 identifier = self.get_primary_identifier(processed_reference_resource)
                                 new_reference = f"{processed_reference_resource.get_resource_type()}?identifier={identifier.system}|{identifier.value}"
                                 resource = self.update_reference(resource, reference.get('path'), new_reference)
-                        # TODO: rewrite reference modes id and fullUrl
                         yield processed_reference_resource
 
             else:
                 logger.info(f"Reference of type {reference.get('resource_type')} ignored.")
 
         if resource.get_resource_type() == 'Consent':
-            pat_id = resource.patient.display.split(' ', 1)[1]
-            resource.patient.reference = f"Patient?identifier={self.identifiers['Patient']}|{pat_id}"
+            resource.patient.reference = f"Patient?identifier={self.get_identifier_system('Patient')}|{pat_id}"
             # Create a static identifier
             organization = resource.organization[0].display
             policy = resource.policy[0].uri
             identifier_value = hashlib.sha256(str.encode(f"{organization}+{policy}+{pat_id}")).hexdigest()
             resource = self.add_identifier(resource,
-                                           identifier_system=self.identifiers[resource.get_resource_type()],
+                                           identifier_system=self.get_identifier_system(resource.get_resource_type()),
                                            identifier_value=identifier_value)
             del resource.patient.display
 
         if resource.get_resource_type() == 'ResearchStudy':
             resource = self.add_identifier(resource,
-                                           identifier_system=self.identifiers[resource.get_resource_type()],
+                                           identifier_system=self.get_identifier_system(resource.get_resource_type()),
                                            identifier_value=resource.id)
-            resource.meta.profile[0] = "http://fhir.de/ConsentManagement/StructureDefinition/Domain/ResearchStudy"
+            profile = "http://fhir.de/ConsentManagement/StructureDefinition/Domain/ResearchStudy"
+            if resource.meta is None:
+                resource.meta = Meta()
+            if resource.meta.profile:
+                resource.meta.profile[0] = profile
+            else:
+                resource.meta.profile = [profile]
 
         # All resources
-        resource = self.add_source(resource, "http://www.uniklinikum-jena.de/fhir/origin/gics")
+        resource = self.add_source(resource, self.meta_source)
 
         yield resource
+
+    @staticmethod
+    def get_consent_patient_id(consent: Resource) -> Optional[str]:
+        """
+        Get the patient id of a Consent from its patient display value, which is expected to be '<idType> <id>'.
+
+        :param consent: The Consent resource.
+        :type consent: Resource
+        :return: The patient id, or None if the display value does not contain a valid one.
+        :rtype: Optional[str]
+        """
+        display = consent.patient.display if consent.patient else None
+        parts = (display or "").split(maxsplit=1)
+        if len(parts) == 2 and re.fullmatch(r'[0-9]{10}', parts[1].strip()):
+            return parts[1].strip()
+        logger.warning(f"Resource Consent/{consent.id} has no valid patient id in its patient display value "
+                       f"'{display}'. Ignoring this resource!")
+        return None
 
     def fetch_reference(self, reference: Dict[str, Any]) -> Iterator[Resource]:
         """
@@ -455,25 +564,29 @@ class ResourceBundler:
         :type system: Optional[str]
         :return: Identifier of the FHIR resource.
         :rtype: Identifier
+        :raises ValueError: If the resource has no identifier.
         """
+        resource_ref = f"{resource.get_resource_type()}/{resource.id}"
         identifier_field = resource.model_fields.get('identifier')
-        if identifier_field:
-            if 'List' in str(identifier_field.annotation):
-                if system is not None:
-                    for identifier in resource.identifier:
-                        if identifier.system == system:
-                            return identifier
-                        logger.warning(
-                            f"Identifier system {system} was not found in resource {resource.id}. Falling back "
-                            f"to first identifier entry.")
-                return resource.identifier[0]
-            elif 'Identifier' in str(identifier_field.annotation):
-                if system is not None:
-                    logger.warning(f"Resource type {resource.get_resource_type()} only supports single identifiers. "
-                                   f"Matching of identifier system ignored.")
-                return resource.identifier
-            else:
-                raise ValueError("Unkown identifier field data type in this resource type.")
+        if not identifier_field:
+            raise ValueError(f"Resource type {resource.get_resource_type()} has no identifier field ({resource_ref}).")
+        if not resource.identifier:
+            raise ValueError(f"Resource {resource_ref} has no identifier.")
+        if 'List' in str(identifier_field.annotation):
+            if system is not None:
+                for identifier in resource.identifier:
+                    if identifier.system == system:
+                        return identifier
+                logger.warning(f"Identifier system {system} was not found in resource {resource_ref}. Falling back "
+                               f"to first identifier entry.")
+            return resource.identifier[0]
+        elif 'Identifier' in str(identifier_field.annotation):
+            if system is not None and resource.identifier.system != system:
+                logger.warning(f"Identifier system {system} was not found in resource {resource_ref}. Using its "
+                               f"only identifier.")
+            return resource.identifier
+        else:
+            raise ValueError(f"Unknown identifier field data type in resource type {resource.get_resource_type()}.")
 
     @staticmethod
     def add_source(resource: Resource, source: str) -> Resource:
@@ -487,10 +600,9 @@ class ResourceBundler:
         :return: Updated FHIR resource with new source.
         :rtype: Resource
         """
-        try:
-            resource.meta.source = source
-        except AttributeError as e:
-            logger.error(e)
+        if resource.meta is None:
+            resource.meta = Meta()
+        resource.meta.source = source
         return resource
 
     def create_entry_request(self, resource: Resource) -> BundleEntryRequest:
@@ -502,39 +614,28 @@ class ResourceBundler:
         :return: A BundleEntryRequest for the given resource.
         :rtype: BundleEntryRequest
         """
-        request_method = (self.config.get('bundling', f'request_method_{resource.get_resource_type()}', fallback=None) or
-                          self.config.get('bundling', f'request_method', fallback=None))
-        if ':' in request_method:
-            request_method, request_condition = request_method.split(':', 1)
+        resource_type = resource.get_resource_type()
+        method, _, condition = (self.config.get('bundling', f'request_method_{resource_type}', fallback=None) or
+                                self.config.get('bundling', 'request_method', fallback='put')).partition(':')
+        method = method.upper()
+        if_none_exist = None
+        if method == 'POST':
+            # A create always targets the resource type, the identifier is only used for the ifNoneExist condition
+            url = resource_type
+            if condition == 'ifNoneExist':
+                identifier = self.get_primary_identifier(resource)
+                # Only the query part of the search URL, as defined for Bundle.entry.request.ifNoneExist
+                if_none_exist = f"identifier={identifier.system}|{identifier.value}"
         else:
-            request_condition = None
-
-        request_url = (self.config.get('bundling', f'request_url_{resource.get_resource_type()}', fallback=None) or
-                       self.config.get('bundling', f'request_url', fallback=None))
-        # Default to id mode
-        url = f"{resource.get_resource_type()}/{resource.id}"
-        if request_method:
+            request_url = (self.config.get('bundling', f'request_url_{resource_type}', fallback=None) or
+                           self.config.get('bundling', 'request_url', fallback='identifier'))
             if request_url == 'identifier':
                 identifier = self.get_primary_identifier(resource)
-                url = f"{resource.get_resource_type()}?identifier={identifier.system}|{identifier.value}"
-            elif request_url == 'id':
-                url = f"{resource.get_resource_type()}/{resource.id}"
-            # TODO: fullUrl still needs work
-        else:
-            # Fallback to PUT
-            request_method = "PUT"
+                url = f"{resource_type}?identifier={identifier.system}|{identifier.value}"
+            else:
+                url = f"{resource_type}/{resource.id}"
 
-        request = BundleEntryRequest(
-            method=request_method.upper(),
-            url=url if request_condition is None else resource.get_resource_type(),
-            ifNoneExist=url if request_condition == 'ifNoneExist' else None,
-            #TODO: Not sure about these
-            #ifNoneMatch = url if request_condition == 'ifNoneMatch' else None,
-            #ifModifiedSince = url if request_condition == 'ifModifiedSince' else None,
-            #ifMatch = url if request_condition == 'ifMatch' else None,
-        )
-
-        return request
+        return BundleEntryRequest(method=method, url=url, ifNoneExist=if_none_exist)
 
     def get_request_params(self, resource_type: str) -> Dict[str, Any]:
         """

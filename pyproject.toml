@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fhir-sync"
-version = "0.6.1"
+version = "0.7.0"
 description = "FHIR synchronization tool"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fhir.resources>=8.0.0",
-    "dic-helper-toolkit>=0.9.7",
+    "dic-helper-toolkit>=0.9.9",
     "paho-mqtt~=2.1.0"
 ]
 
@@ -26,5 +26,5 @@ dic-helper-toolkit = { index = "gitlab" }
 
 [[tool.uv.index]]
 name = "gitlab"
-url = "https://git.smith.care/api/v4/projects/354/packages/pypi/simple"
+url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple"
 authenticate = "always"

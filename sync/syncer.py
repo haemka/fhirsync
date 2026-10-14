@@ -1,10 +1,10 @@
 import json
 import logging
 import re
+import ssl
 
 import paho.mqtt.client as mqtt
 from configparser import ConfigParser
-from ssl import CERT_REQUIRED
 from typing import Dict, Any, List
 from sync.bundler import ResourceBundler
 
@@ -25,7 +25,10 @@ class ResourceSyncer:
     def __init__(self, bundler: ResourceBundler, config: ConfigParser) -> None:
         self.bundler: ResourceBundler = bundler
         self.mqtt_tls_enabled: bool = config.getboolean('notifications', 'tls_enabled', fallback=False)
-        self.mqtt_tls_ca_cert: str = config.get('common', 'ca_certs', fallback=None)
+        self.mqtt_ca_file: str = config.get('notifications', 'ca_file', fallback=config.get(
+            'common', 'ca_file', fallback=None))
+        self.mqtt_rfc5280: bool = config.getboolean('notifications', 'rfc5280', fallback=config.getboolean(
+            'common', 'rfc5280', fallback=True))
         self.mqtt_host: str = config.get('notifications', 'server')
         self.mqtt_port: int = int(config.get('notifications', 'port', fallback=1883 if not self.mqtt_tls_enabled else 8883))
         self.mqtt_topic: str = config.get('notifications', 'topic')
@@ -36,17 +39,24 @@ class ResourceSyncer:
 
     def setup(self) -> None:
         """
-        Set up the MQTT client with the configured settings and start the connection.
+        Set up the MQTT client with the configured settings.
         """
         if self.mqtt_username and self.mqtt_password:
             self.mqtt_client.username_pw_set(self.mqtt_username, self.mqtt_password)
         if self.mqtt_tls_enabled:
-            self.mqtt_client.tls_set(ca_certs=self.mqtt_tls_ca_cert,
-                                     certfile=None,
-                                     keyfile=None,
-                                     cert_reqs=CERT_REQUIRED)
+            context = ssl.create_default_context(cafile=self.mqtt_ca_file)
+            if self.mqtt_rfc5280:
+                context.verify_flags |= ssl.VERIFY_X509_STRICT
+            else:
+                context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+            self.mqtt_client.tls_set_context(context)
         self.mqtt_client.on_connect = self.on_connect
         self.mqtt_client.on_message = self.on_message
+
+    def run(self) -> None:
+        """
+        Connect to the MQTT server and process incoming messages until the process is stopped.
+        """
         self.mqtt_client.connect(self.mqtt_host, self.mqtt_port, 60)
         self.mqtt_client.loop_forever()
 
@@ -123,9 +133,9 @@ class ConsentSyncer(ResourceSyncer):
                 signerIds.append(f"{ap.get("signerIdType")} {ap.get("signerId")}")
             logger.debug(f"Ignoring {message_data.get("type")} for {','.join(signerIds)}")
         else:
-            consent_key: Dict[str, Any] = message_data.get("consentKey", {})
+            consent_key: Dict[str, Any] = message_data.get("consentKey") or {}
             logger.debug(f"Consent key is {consent_key}")
-            consent_template_key: str = consent_key.get("consentTemplateKey", "{}").get("domainName")
+            consent_template_key: str = (consent_key.get("consentTemplateKey") or {}).get("domainName")
             logger.debug(f"Consent template key is {consent_template_key}")
             signer_ids: List[Dict[str, str]] = consent_key.get("signerIds")
             logger.debug(f"Signer IDs are {signer_ids}")
@@ -141,6 +151,9 @@ class ConsentSyncer(ResourceSyncer):
                             else:
                                 #TODO: deletion of invalidated or otherwise invalid Consent resources.
                                 logger.info(f"Consent QC is not passed with type '{message_data.get("context").get("qc").get("type")}'.")
+            else:
+                logger.warning(f"Ignoring {message_data.get('type')} message without consent template key or "
+                               f"signer IDs.")
 
     def fetch_fhir_consents(self, sid: str, sid_type: str, consent_template_key: str) -> None:
         """
