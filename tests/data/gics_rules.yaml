@@ -1,0 +1,31 @@
+# The gICS Consent rules of config-example.yaml (docs/rules.md section 7.2), used as test data
+# (the processing that was built into fhirsync 0.7 and older)
+Consent:
+  filter:
+    - extract:
+        name: pat_id
+        from: patient.display
+        pattern: '^\s*\S+\s+(\d{10})\s*$'
+  transform:
+    - set:
+        path: patient.reference
+        value: "Patient?identifier={identifierSystem('Patient')}|{%pat_id}"
+    - set_identifier:
+        system: "{identifierSystem('Consent')}"
+        value: "{(organization[0].display + '+' + policy[0].uri + '+' + %pat_id).sha256()}"
+    - delete: patient.display
+ResearchStudy:
+  transform:
+    - set_identifier:
+        system: "{identifierSystem('ResearchStudy')}"
+        value: "{id}"
+    - set:
+        path: meta.profile[0]
+        value: http://fhir.de/ConsentManagement/StructureDefinition/Domain/ResearchStudy
+"*":
+  transform:
+    - set:
+        path: meta.source
+        value: http://www.uniklinikum-jena.de/fhir/origin/gics
+  finalize:
+    - delete: [id, meta.lastUpdated]

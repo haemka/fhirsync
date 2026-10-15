@@ -1,0 +1,26 @@
+{
+  "resourceType": "Patient",
+  "id": "47f5f6f4-c809-11f1-8d48-d6456abb6135",
+  "meta": {
+    "lastUpdated": "2026-10-14T21:56:01.275+02:00",
+    "profile": [
+      "http://fhir.de/ConsentManagement/StructureDefinition/Patient"
+    ]
+  },
+  "identifier": [
+    {
+      "id": "47f5f6f4-c809-11f1-8d48-d6456abb6135",
+      "type": {
+        "coding": [
+          {
+            "system": "http://hl7.org/fhir/v2/0203/",
+            "code": "ANON",
+            "display": "Anonymous identifier"
+          }
+        ]
+      },
+      "system": "https://ths-greifswald.de/fhir/gics/identifiers/Pseudonym",
+      "value": "1000000001"
+    }
+  ]
+}

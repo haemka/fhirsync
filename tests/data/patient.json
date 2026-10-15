@@ -1,0 +1,40 @@
+{
+  "resourceType": "Patient",
+  "id": "p-4711",
+  "meta": {
+    "versionId": "3",
+    "lastUpdated": "2026-09-01T12:00:00Z"
+  },
+  "text": {
+    "status": "generated",
+    "div": "<div xmlns=\"http://www.w3.org/1999/xhtml\">Erika Muster</div>"
+  },
+  "identifier": [
+    {
+      "system": "http://hospital.example/sid/mrn",
+      "value": "0012345"
+    }
+  ],
+  "name": [
+    {
+      "family": "Muster",
+      "given": [
+        "Erika"
+      ]
+    }
+  ],
+  "telecom": [
+    {
+      "system": "phone",
+      "value": "0123 456"
+    }
+  ],
+  "address": [
+    {
+      "city": "Jena",
+      "postalCode": "07743"
+    }
+  ],
+  "gender": "female",
+  "birthDate": "1980-05-17"
+}

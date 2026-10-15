@@ -1,138 +1,84 @@
 import os
-import re
 import uuid
 import logging
-import hashlib
-from configparser import ConfigParser
-from typing import List, Dict, Any, Optional, Iterator
+from dataclasses import dataclass
+from typing import List, Dict, Any, Optional, Iterator, Union
 
 import requests.exceptions
 from dic_helpers.fhir_client import FHIRClient
 from fhir.resources.R4B.resource import Resource
 from fhir.resources.R4B.bundle import Bundle, BundleEntry, BundleEntryRequest
 from fhir.resources.R4B.identifier import Identifier
-from fhir.resources.R4B.meta import Meta
 from requests import HTTPError
 
+from fhirsync.config import Config, Source, Target
+from fhirsync.rules import RuleEngine
+
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+
+
+@dataclass
+class SyncResult:
+    """What a fetch_resources() run wrote."""
+    # Bundles written to files or accepted by the target server
+    bundles: int = 0
+    # Entries in these Bundles: search results and their referenced resources
+    entries: int = 0
+    # Bundles the target server rejected with 404 (logged, not counted in bundles and entries)
+    rejected: int = 0
 
 
 class ResourceBundler:
     """
     A class for bundling and processing FHIR resources.
 
-    :param config: Configuration object containing settings for the ResourceBundler.
-    :type config: ConfigParser
+    :param config: The validated fhirsync configuration.
+    :type config: Config
     """
 
-    def __init__(self, config: ConfigParser) -> None:
+    def __init__(self, config: Config) -> None:
         self.config = config
-        source_options = {}
-        if self.config.get('source', 'next_param', fallback=None):
-            source_options['next_param'] = self.config.get('source', 'next_param')
-        self.source_client = FHIRClient(base_url=self.config.get('source', 'base_url'),
-                                        username=self.config.get('source', 'username', fallback=None),
-                                        password=self.config.get('source', 'password', fallback=None),
-                                        auth_url=self.config.get('source', 'auth_url', fallback=None),
-                                        realm=self.config.get('source', 'realm', fallback=None),
-                                        client_id=self.config.get('source', 'client_id', fallback=None),
-                                        client_secret=self.config.get('source', 'client_secret', fallback=None),
-                                        ca_file=self.config.get('source', 'ca_file', fallback=self.config.get(
-                                            'common', 'ca_file', fallback=None)),
-                                        rfc5280=self.config.getboolean(
-                                            'source', 'rfc5280', fallback=self.config.getboolean(
-                                                'common', 'rfc5280', fallback=True)),
-                                        **source_options)
-        if self.config.get('target', 'mode') == "server":
-            self.target_client = FHIRClient(base_url=self.config.get('target', 'base_url'),
-                                            username=self.config.get('target', 'username', fallback=None),
-                                            password=self.config.get('target', 'password', fallback=None),
-                                            auth_url=self.config.get('target', 'auth_url', fallback=None),
-                                            realm=self.config.get('target', 'realm', fallback=None),
-                                            client_id=self.config.get('target', 'client_id', fallback=None),
-                                            client_secret=self.config.get('target', 'client_secret', fallback=None),
-                                            ca_file=self.config.get( 'target', 'ca_file', fallback=self.config.get(
-                                                'common', 'ca_file', fallback=None)),
-                                            rfc5280=self.config.getboolean(
-                                                'target', 'rfc5280', fallback=self.config.getboolean(
-                                                    'common', 'rfc5280', fallback=True)),
-                                            )
-        self.ignored_references = [t.strip() for t in self.config.get(
-            'bundling', 'ignore_references', fallback="").split(',') if t.strip()]
-        self.reference_mode = self.config.get('bundling', 'reference_mode', fallback='identifier')
-        if self.reference_mode not in ('as_is', 'identifier'):
-            raise ValueError(f"Unsupported reference_mode '{self.reference_mode}' in [bundling]. "
-                             f"Supported values are 'as_is' and 'identifier'.")
-        self.bundle_identifier_system = self.config.get(
-            'bundling', 'bundle_identifier_system',
-            fallback="http://www.uniklinikum-jena.de/fhir/sid/consentBundle")
-        self.meta_source = self.config.get(
-            'bundling', 'meta_source', fallback="http://www.uniklinikum-jena.de/fhir/origin/gics")
-        self.identifiers = {}
-        for pair in self.config.get('bundling', 'identifier_systems', fallback="").split(","):
-            if not pair.strip():
-                continue
-            if "=" not in pair:
-                raise ValueError(f"Invalid entry '{pair.strip()}' in [bundling] identifier_systems. "
-                                 f"Expected <ResourceType>=<system>.")
-            resource_type, system = pair.split("=", 1)
-            self.identifiers[resource_type.strip()] = system.strip()
-        logger.info(f"Identifiers:\n" + "\n".join(f"  {k} = {v}" for k, v in self.identifiers.items()))
-        self.validate_request_settings()
+        self.source_client = self._client(config.source, next_param=config.source.next_param)
+        self.target_client = self._client(config.target) if config.target.mode == "server" else None
+        self.rules: RuleEngine = config.processing.engine()
 
-    def validate_request_settings(self) -> None:
+    def _client(self, section: Union[Source, Target], **options: Any) -> FHIRClient:
         """
-        Validate all request_method and request_url settings in [bundling], including resource type specific ones.
+        Create a FHIR client for the source or target section.
 
-        :raises ValueError: If a setting has an unsupported value.
+        :param section: The configuration section of the endpoint.
+        :type section: Union[Source, Target]
+        :param options: Additional client options, None values are left to the client's defaults.
+        :return: The FHIR client.
+        :rtype: FHIRClient
         """
-        if not self.config.has_section('bundling'):
-            return
-        for option, value in self.config.items('bundling'):
-            if option == 'request_url' or option.startswith('request_url_'):
-                if value not in ('identifier', 'id'):
-                    raise ValueError(f"Unsupported value '{value}' for {option} in [bundling]. "
-                                     f"Supported values are 'identifier' and 'id'.")
-            elif option == 'request_method' or option.startswith('request_method_'):
-                method, _, condition = value.partition(':')
-                if method.lower() not in ('put', 'post'):
-                    raise ValueError(f"Unsupported request method '{method}' for {option} in [bundling]. "
-                                     f"Supported methods are 'put' and 'post'.")
-                if condition and not (method.lower() == 'post' and condition == 'ifNoneExist'):
-                    raise ValueError(f"Unsupported condition '{condition}' for {option} in [bundling]. "
-                                     f"Only 'post:ifNoneExist' is supported.")
+        ca_file, rfc5280 = self.config.tls(section)
+        auth = section.auth.model_dump(exclude_none=True) if section.auth else {}
+        options = {key: value for key, value in options.items() if value is not None}
+        return FHIRClient(base_url=section.base_url, ca_file=ca_file, rfc5280=rfc5280, **auth, **options)
 
-    def get_identifier_system(self, resource_type: str) -> str:
+    def fetch_resources(self, search_path: str,
+                        params: Optional[Dict[str, Union[str, List[str]]]] = None) -> SyncResult:
         """
-        Get the configured identifier system for a resource type.
+        Search the source, process the results with their references and write the Bundles to the target.
 
-        :param resource_type: The resource type to get the identifier system for.
-        :type resource_type: str
-        :return: The identifier system.
-        :rtype: str
-        :raises ValueError: If no identifier system is configured for the resource type.
-        """
-        try:
-            return self.identifiers[resource_type]
-        except KeyError:
-            raise ValueError(f"No identifier system configured for {resource_type}. Add "
-                             f"'{resource_type}=<system>' to identifier_systems in [bundling].") from None
-
-    def fetch_resources(self, search_path: str) -> None:
-        """
-        Fetch resources based on the given search path and process them.
-
-        :param search_path: The search path for fetching resources.
+        :param search_path: The search, '<Type>' or '<Type>?<parameters>', the parameters not URL encoded.
         :type search_path: str
+        :param params: More search parameters, not encoded, a list value repeats the parameter. They take precedence
+            over the parameters of search_path, which take precedence over source.request_params.
+        :type params: Optional[Dict[str, Union[str, List[str]]]]
+        :return: The number of Bundles and entries written.
+        :rtype: SyncResult
         """
         logger.info("Started Processing")
+        result = SyncResult()
         if "?" in search_path:
             search_resource_type, search_params = search_path.split("?", maxsplit=1)
-            params = self.get_request_params(search_resource_type) | self.parse_query_params(search_params)
+            params = (self.get_request_params(search_resource_type) | self.parse_query_params(search_params)
+                      | (params or {}))
         else:
             search_resource_type = search_path
-            params = self.get_request_params(search_resource_type)
+            params = self.get_request_params(search_resource_type) | (params or {})
         for bundle in self.source_client.search(search_resource_type, params=params):
             if bundle.entry is None:
                 logger.debug(f"Ignoring empty bundle with id {bundle.id}")
@@ -140,15 +86,16 @@ class ResourceBundler:
             logger.debug(f"Fetched a bundle with {bundle.total} entries.")
 
             current_bundle = None
-            max_bundle_size = self.config.getint('bundling', 'bundle_size')
+            bundle_settings = self.config.bundling.bundle
+            max_bundle_size = bundle_settings.size
 
             for num, entry in enumerate(bundle.entry):
                 # Initialize an empty Bundle if needed
                 if current_bundle is None:
                     current_bundle = Bundle(
-                        type=self.config.get('bundling', 'bundle_type'),
+                        type=bundle_settings.type,
                         entry=[],
-                        identifier=Identifier(system=self.bundle_identifier_system,
+                        identifier=Identifier(system=bundle_settings.identifier_system,
                                               value=str(uuid.uuid4()))
                     )
 
@@ -162,26 +109,37 @@ class ResourceBundler:
                 if max_bundle_size > 0 and (num + 1) % max_bundle_size == 0 and len(current_bundle.entry) > 0:
                     current_bundle = self.post_process_bundle(current_bundle)
                     logger.debug(f"Sending bundle {num} to output.")
-                    self._handle_bundle_output(current_bundle)
+                    self._handle_bundle_output(current_bundle, result)
                     current_bundle = None
 
             # Handle remaining entries after loop
             if current_bundle is not None and len(current_bundle.entry) > 0:
                 logger.debug(f"Sending last bundle to ouput.")
                 current_bundle = self.post_process_bundle(current_bundle)
-                self._handle_bundle_output(current_bundle)
+                self._handle_bundle_output(current_bundle, result)
+        logger.info(f"Finished Processing: {result.bundles} Bundles with {result.entries} entries written, "
+                    f"{result.rejected} rejected")
+        return result
 
-    def _handle_bundle_output(self, bundle: Bundle) -> None:
+    def _handle_bundle_output(self, bundle: Bundle, result: SyncResult) -> None:
         """
         Handle the output of a processed bundle.
 
         :param bundle: The bundle to be handled.
         :type bundle: Bundle
+        :param result: The result of the run, counts the Bundle.
+        :type result: SyncResult
         """
-        if self.config.get('target', 'mode') == "file":
+        if self.config.target.mode == "file":
             self._write_bundle_to_file(bundle)
-        elif self.config.get('target', 'mode') == "server":
-            self._send_bundle_to_server(bundle)
+            accepted = True
+        else:
+            accepted = self._send_bundle_to_server(bundle)
+        if accepted:
+            result.bundles += 1
+            result.entries += len(bundle.entry)
+        else:
+            result.rejected += 1
 
     def _write_bundle_to_file(self, bundle: Bundle) -> None:
         """
@@ -190,7 +148,7 @@ class ResourceBundler:
         :param bundle: The bundle to be written to a file.
         :type bundle: Bundle
         """
-        outdir = self.config.get('target', 'outdir')
+        outdir = self.config.target.outdir
         if not os.path.exists(outdir):
             os.mkdir(outdir)
         if len(bundle.entry) > 0:
@@ -203,13 +161,15 @@ class ResourceBundler:
             logger.warning("Bundle did not contain any resource. This may occur if all resources are filtered. "
                            "No output file written.")
 
-    def _send_bundle_to_server(self, bundle: Bundle) -> None:
+    def _send_bundle_to_server(self, bundle: Bundle) -> bool:
         """
-       Send a bundle to the target server.
+        Send a bundle to the target server.
 
-       :param bundle: The bundle to be sent to the server.
-       :type bundle: Bundle
-       """
+        :param bundle: The bundle to be sent to the server.
+        :type bundle: Bundle
+        :return: False if the target rejected the Bundle with 404, True if it accepted it.
+        :rtype: bool
+        """
         logger.info(f"Sending bundle with {len(bundle.entry)} entries to target server at "
                     f"{self.target_client.base_url}...")
         try:
@@ -219,8 +179,9 @@ class ResourceBundler:
                 logger.warning(f"Target server returned 404 for bundle {bundle.identifier.value}, most likely because "
                                f"a referenced Patient does not exist on the target. Server response: "
                                f"{self._describe_error_response(e.response)}")
-            else:
-                raise
+                return False
+            raise
+        return True
 
     @staticmethod
     def _describe_error_response(response: requests.Response) -> str:
@@ -257,20 +218,16 @@ class ResourceBundler:
             bundle.entry[idx] = BundleEntry(resource=resource, request=request)
         return bundle
 
-    @staticmethod
-    def post_process_resource(resource: Resource) -> Resource:
+    def post_process_resource(self, resource: Resource) -> Resource:
         """
-        Post-process a single resource.
+        Post-process a single resource after its Bundle entry request is built, by applying the finalize rules.
 
         :param resource: The resource to be post-processed.
         :type resource: Resource
         :return: The post-processed resource.
         :rtype: Resource
         """
-        del resource.id
-        if resource.meta is not None:
-            del resource.meta.lastUpdated
-        return resource
+        return self.rules.apply("finalize", resource, {})
 
     def process_entry(self, entry: BundleEntry) -> Iterator[BundleEntry]:
         """
@@ -305,22 +262,20 @@ class ResourceBundler:
                 logger.warning(f"OperationOutcome: {issue.severity} - {issue.diagnostics}")
             return
 
-        if resource.get_resource_type() == 'Consent' and self.contains_category_coding(resource, target_system="http://loinc.org", target_code="59284-0"):
-            logger.warning(f"Resource {resource.get_resource_type()}/{resource.id} has a category.coding for "
-                           f"http://loinc.org with code '59284-0'. Ignoring this resource!")
+        # Variables extracted by the filter rules, available to the transform rules
+        variables: Dict[str, str] = {}
+        resource = self.rules.apply("filter", resource, variables)
+        if resource is None:
             return
 
-        if resource.get_resource_type() == 'Consent':
-            pat_id = self.get_consent_patient_id(resource)
-            if pat_id is None:
-                return
-
+        bundling = self.config.bundling
+        resource_type = resource.get_resource_type()
         references = self.extract_references(resource)
         for reference in references:
-            if reference.get('resource_type') not in self.ignored_references:
+            if reference.get('resource_type') not in bundling.ignore_references_to_for(resource_type):
                 for referenced_resource in self.fetch_reference(reference):
                     for processed_reference_resource in self.process_resource(referenced_resource):
-                        if self.reference_mode == 'identifier':
+                        if bundling.reference_mode_for(resource_type) == 'identifier':
                             if reference.get('type') != 'logical' or 'identifier' not in reference.get('params').keys():
                                 identifier = self.get_primary_identifier(processed_reference_resource)
                                 new_reference = f"{processed_reference_resource.get_resource_type()}?identifier={identifier.system}|{identifier.value}"
@@ -330,51 +285,9 @@ class ResourceBundler:
             else:
                 logger.info(f"Reference of type {reference.get('resource_type')} ignored.")
 
-        if resource.get_resource_type() == 'Consent':
-            resource.patient.reference = f"Patient?identifier={self.get_identifier_system('Patient')}|{pat_id}"
-            # Create a static identifier
-            organization = resource.organization[0].display
-            policy = resource.policy[0].uri
-            identifier_value = hashlib.sha256(str.encode(f"{organization}+{policy}+{pat_id}")).hexdigest()
-            resource = self.add_identifier(resource,
-                                           identifier_system=self.get_identifier_system(resource.get_resource_type()),
-                                           identifier_value=identifier_value)
-            del resource.patient.display
-
-        if resource.get_resource_type() == 'ResearchStudy':
-            resource = self.add_identifier(resource,
-                                           identifier_system=self.get_identifier_system(resource.get_resource_type()),
-                                           identifier_value=resource.id)
-            profile = "http://fhir.de/ConsentManagement/StructureDefinition/Domain/ResearchStudy"
-            if resource.meta is None:
-                resource.meta = Meta()
-            if resource.meta.profile:
-                resource.meta.profile[0] = profile
-            else:
-                resource.meta.profile = [profile]
-
-        # All resources
-        resource = self.add_source(resource, self.meta_source)
+        resource = self.rules.apply("transform", resource, variables)
 
         yield resource
-
-    @staticmethod
-    def get_consent_patient_id(consent: Resource) -> Optional[str]:
-        """
-        Get the patient id of a Consent from its patient display value, which is expected to be '<idType> <id>'.
-
-        :param consent: The Consent resource.
-        :type consent: Resource
-        :return: The patient id, or None if the display value does not contain a valid one.
-        :rtype: Optional[str]
-        """
-        display = consent.patient.display if consent.patient else None
-        parts = (display or "").split(maxsplit=1)
-        if len(parts) == 2 and re.fullmatch(r'[0-9]{10}', parts[1].strip()):
-            return parts[1].strip()
-        logger.warning(f"Resource Consent/{consent.id} has no valid patient id in its patient display value "
-                       f"'{display}'. Ignoring this resource!")
-        return None
 
     def fetch_reference(self, reference: Dict[str, Any]) -> Iterator[Resource]:
         """
@@ -505,55 +418,6 @@ class ResourceBundler:
         return resource
 
     @staticmethod
-    def contains_category_coding(resource: Resource, target_system: str, target_code: str) -> bool:
-        """
-        Checks if a FHIR resource contains a specific coding in its category.
-
-        :param resource: FHIR resource object (Patient, Observation, etc.).
-        :type resource: Resource
-        :param target_system: The coding system URI to match.
-        :type target_system: str
-        :param target_code: The code value to match.
-        :type target_code: str
-        :return: True if matching coding is found in category.
-        :rtype: bool
-        """
-        return any(
-            any(coding.system == target_system and coding.code == target_code
-                for coding in category.coding or [])
-            for category in getattr(resource, 'category', [])
-        )
-
-    @staticmethod
-    def add_identifier(resource: Resource, identifier_system: str, identifier_value: str) -> Resource:
-        """
-        Add an identifier to a FHIR resource.
-
-        :param resource: FHIR resource to add identifier to.
-        :type resource: Resource
-        :param identifier_system: The system for the identifier.
-        :type identifier_system: str
-        :param identifier_value: The value for the identifier.
-        :type identifier_value: str
-        :return: Updated FHIR resource with new identifier.
-        :rtype: Resource
-        """
-        identifier = Identifier(system=identifier_system, value=identifier_value)
-
-        identifier_field = resource.model_fields.get('identifier')
-        if identifier_field:
-            if 'List' in str(identifier_field.annotation):
-                resource.identifier = [identifier]
-            elif 'Identifier' in str(identifier_field.annotation):
-                resource.identifier = identifier
-            else:
-                raise ValueError("Unknown identifier field data type in this resource type.")
-        else:
-            raise ValueError("No identifier field in this resource type.")
-
-        return resource
-
-    @staticmethod
     def get_primary_identifier(resource: Resource, system: Optional[str] = None) -> Identifier:
         """
         Get the identifier of a FHIR resource.
@@ -588,23 +452,6 @@ class ResourceBundler:
         else:
             raise ValueError(f"Unknown identifier field data type in resource type {resource.get_resource_type()}.")
 
-    @staticmethod
-    def add_source(resource: Resource, source: str) -> Resource:
-        """
-        Add a source to a FHIR resource's metadata.
-
-        :param resource: FHIR resource to add source to.
-        :type resource: Resource
-        :param source: The source to add.
-        :type source: str
-        :return: Updated FHIR resource with new source.
-        :rtype: Resource
-        """
-        if resource.meta is None:
-            resource.meta = Meta()
-        resource.meta.source = source
-        return resource
-
     def create_entry_request(self, resource: Resource) -> BundleEntryRequest:
         """
         Create a BundleEntryRequest for a given resource.
@@ -615,21 +462,18 @@ class ResourceBundler:
         :rtype: BundleEntryRequest
         """
         resource_type = resource.get_resource_type()
-        method, _, condition = (self.config.get('bundling', f'request_method_{resource_type}', fallback=None) or
-                                self.config.get('bundling', 'request_method', fallback='put')).partition(':')
-        method = method.upper()
+        request = self.config.bundling.request_for(resource_type)
+        method = request.method.upper()
         if_none_exist = None
         if method == 'POST':
             # A create always targets the resource type, the identifier is only used for the ifNoneExist condition
             url = resource_type
-            if condition == 'ifNoneExist':
+            if request.condition == 'ifNoneExist':
                 identifier = self.get_primary_identifier(resource)
                 # Only the query part of the search URL, as defined for Bundle.entry.request.ifNoneExist
                 if_none_exist = f"identifier={identifier.system}|{identifier.value}"
         else:
-            request_url = (self.config.get('bundling', f'request_url_{resource_type}', fallback=None) or
-                           self.config.get('bundling', 'request_url', fallback='identifier'))
-            if request_url == 'identifier':
+            if request.url == 'identifier':
                 identifier = self.get_primary_identifier(resource)
                 url = f"{resource_type}?identifier={identifier.system}|{identifier.value}"
             else:
@@ -646,11 +490,7 @@ class ResourceBundler:
         :return: A dictionary of request parameters.
         :rtype: Dict[str, Any]
         """
-        request_params = (self.config.get('source', f'request_params_{resource_type}', fallback=None) or
-                          self.config.get('source', 'request_params', fallback=None))
-        params = {}
-        if request_params:
-            params = self.parse_query_params(request_params)
+        params = self.config.source.request_params_for(resource_type)
         logger.debug(f"Request params for resource type {resource_type} are {params}")
         return params
 

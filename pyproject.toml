@@ -4,21 +4,34 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fhir-sync"
-version = "0.7.0"
-description = "FHIR synchronization tool"
+version = "0.8.0"
+description = "FHIR resource bundler and synchronization library"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fhir.resources>=8.0.0",
-    "dic-helper-toolkit>=0.9.9",
-    "paho-mqtt~=2.1.0"
+    "dic-helper-toolkit>=0.9.10",
+    "fhirpathpy>=2.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0"
 ]
 
 [project.scripts]
-fhirsync = "sync:run"
+fhirsync = "fhirsync.cli:run"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+    "responses>=0.26"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# tests import tests/support.py
+pythonpath = ["tests"]
 
 [tool.setuptools]
-packages = {find = {}}
+packages = ["fhirsync"]
 
 # GitLab package registry configuration
 [tool.uv.sources]

@@ -1,0 +1,24 @@
+{
+  "resourceType": "Observation",
+  "id": "o-1",
+  "status": "final",
+  "code": {
+    "coding": [
+      {
+        "system": "http://loinc.org",
+        "code": "718-7",
+        "display": "Hemoglobin"
+      }
+    ]
+  },
+  "subject": {
+    "reference": "Patient/p-4711"
+  },
+  "effectiveDateTime": "2026-03-01T10:00:00+01:00",
+  "valueQuantity": {
+    "value": 13.2,
+    "unit": "g/dL",
+    "system": "http://unitsofmeasure.org",
+    "code": "g/dL"
+  }
+}

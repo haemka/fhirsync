@@ -1,0 +1,229 @@
+# fhirsync configuration example
+#
+# Copy this file to config.yaml (the default path, or give another one with -c) and adapt it.
+#
+# General notes
+# - Unknown variables are errors, with a suggestion for likely typos ("did you mean 'size'?").
+# - Incomplete settings are errors, e.g. a username without a password. Settings that have no effect, e.g. an outdir
+#   with target mode server, are logged as warnings and ignored.
+# - All errors in the file are reported at once when fhirsync starts, before anything is fetched or sent.
+# - Every text value can contain environment variables: ${NAME}, or ${NAME:-default} with a default for an unset
+#   variable. An unset variable without a default is an error. Use this for secrets:
+#       client_secret: ${GICS_CLIENT_SECRET}
+#   Values are substituted after reading the YAML, so secrets may contain any characters. Inside inline mappings
+#   ({ ... }) a value with ${...} must be quoted.
+# - "common" under resources and request_params means "all resource types". A resource type's own settings override
+#   it: single values are overridden, lists are replaced, search parameters are merged parameter by parameter.
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# common: defaults for the TLS connections to source and target. Each of them can override these.
+# ----------------------------------------------------------------------------------------------------------------------
+common:
+  # CA certificate file (PEM) for verifying the servers' certificates. Optional. Without it, the system's trusted CAs are
+  # used. With it, ONLY this file is trusted, so it must contain every CA needed (e.g. a chain of root and intermediate
+  # certificates).
+  ca_file: ./ca.crt
+  # Strict certificate checks according to RFC 5280 (Python's VERIFY_X509_STRICT). Optional, default: true.
+  # Set to false for certificates from internal CAs that don't fully follow RFC 5280 (e.g. missing key usage
+  # extensions). Chain and hostname are verified either way.
+  rfc5280: true
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# source: the FHIR server resources are fetched from (e.g. the gICS TTP-FHIR Gateway). Required.
+# ----------------------------------------------------------------------------------------------------------------------
+source:
+  # Base URL of the FHIR endpoint. Required.
+  base_url: https://gicsserver/ttp-fhir/fhir/gics/
+
+  # Authentication. Optional, without it requests are sent unauthenticated. Either:
+  # - basic authentication: username and password, or
+  # - OAuth 2.0 with Keycloak: auth_url, realm, client_id and client_secret. These four are only used together: if one
+  #   is missing, that is an error. Without username/password the client credentials flow is used, with them the
+  #   resource owner password flow.
+  auth:
+    auth_url: https://authserver/auth        # Keycloak base URL, the token endpoint is discovered from the realm
+    realm: REALM
+    client_id: fhirsync
+    client_secret: ${GICS_CLIENT_SECRET}
+    # username: sync-user
+    # password: ${GICS_PASSWORD}
+
+  # CA file and strict RFC 5280 checks for this server only. Optional, override common.ca_file / common.rfc5280.
+  # ca_file: ./source-ca.crt
+  # rfc5280: false
+
+  # Query parameter for offset paging. Optional, only needed for servers that don't page with "next" links in their
+  # search Bundles. Without it, only standard FHIR paging (next links) is used and a search ends after a page without a
+  # next link (a warning is logged if the Bundle's total shows that results are missing). The gICS gateway sends no
+  # next links: if your searches can return more results than one page (fhirsync requests 50 per page), set the
+  # offset parameter your gICS understands, e.g. _offset.
+  next_param: _offset
+
+  # Search parameters added to every search, per resource type. Optional.
+  # - "common" applies to all resource types, a resource type's own parameters override single common parameters and
+  #   add to them.
+  # - A list value repeats the parameter: _include: [Consent:patient, Consent:organization]
+  # - They are added to the query given with -q, whose own parameters take precedence, and to searches for
+  #   references written as Type?..., where the parameters configured here take precedence.
+  request_params:
+    common:
+      # _lastUpdated: ge2025-03-18
+    Consent:
+      domain:identifier: MII
+      category: http://fhir.de/ConsentManagement/CodeSystem/ResultType|consent-status
+    ResearchStudy:
+      _profile: http://fhir.de/ConsentManagement/StructureDefinition/Domain/ResearchStudy
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# target: where the Bundles go. Required.
+# ----------------------------------------------------------------------------------------------------------------------
+target:
+  # server: post every Bundle to a FHIR server. file: write every Bundle as a JSON file. Required.
+  mode: server
+
+  # Base URL of the target FHIR endpoint. Required with mode server, ignored (with a warning) with mode file.
+  base_url: https://fhirserver/fhir
+
+  # Directory for the Bundle files, created if missing. Required with mode file, ignored with mode server.
+  # Each Bundle is written to <outdir>/<Bundle identifier value>.json.
+  # outdir: ./out
+
+  # Authentication, as in source.auth. Only with mode server.
+  auth:
+    username: fhirsync
+    password: ${FHIRSERVER_PASSWORD}
+
+  # CA file and strict RFC 5280 checks for the target only. Optional, only with mode server.
+  # ca_file: ./target-ca.crt
+  # rfc5280: false
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# bundling: how the fetched resources are packaged into Bundles and written to the target.
+# ----------------------------------------------------------------------------------------------------------------------
+bundling:
+  # The output Bundles themselves.
+  bundle:
+    # Bundle.type: transaction (all entries succeed or fail together), batch (entries are independent) or
+    # collection (no requests are executed, e.g. for files). Optional, default: transaction.
+    type: transaction
+    # Number of search results per Bundle. Optional, default: 1. Each search result brings the resources it references
+    # into the same Bundle, so a Bundle contains more entries than this. 1 is the safest choice: a failing Bundle
+    # affects only one search result. 0 puts all results of one search page into one Bundle.
+    size: 1
+    # System of Bundle.identifier. The value is a random UUID, which is also the file name with target mode file.
+    # Optional, default: http://www.uniklinikum-jena.de/fhir/sid/consentBundle
+    identifier_system: http://www.uniklinikum-jena.de/fhir/sid/consentBundle
+
+  # Settings for resources in the Bundles, per resource type. "common" applies to all resource types, a resource
+  # type's own settings override it. Optional.
+  resources:
+    common:
+      # The request of the Bundle entry, i.e. how the resource is written to the target.
+      request:
+        # put: create or update (default). post: create.
+        method: put
+        # How the request URL of put is built (default: identifier):
+        # - identifier: PUT <Type>?identifier=<system>|<value>, a conditional update with the resource's FIRST
+        #   identifier. A resource without an identifier STOPS THE WHOLE RUN with "Resource <Type>/<id> has no
+        #   identifier.". Resources whose source has no identifiers need a set_identifier rule (see processing).
+        # - id: PUT <Type>/<source id>, the target uses the source server's ids.
+        # Ignored (with a warning) with post, which always targets the resource type.
+        url: identifier
+        # Condition for post (no default): ifNoneExist creates the resource only if none with its first identifier
+        # exists on the target. Ignored (with a warning) with put.
+        # condition: ifNoneExist
+
+      # How references between resources are written (default: identifier):
+      # - identifier: a reference to a resource that is in the same Bundle is rewritten to that resource's first
+      #   identifier: ResearchStudy/123 becomes ResearchStudy?identifier=<system>|<value>. The target resolves it
+      #   when processing the Bundle. Applies to references FROM resources of this type.
+      # - as_is: references are left unchanged.
+      reference_mode: identifier
+
+      # References from resources of this type to these resource types are not followed: the referenced resource isn't
+      # fetched or added to the Bundle, and the reference isn't rewritten. Optional, default: none.
+      # A resource type's own list replaces this one completely; use an empty list ([]) to follow all references.
+      # Here: gICS's Patient only carries the pseudonym, the Consent rules point to the hospital's patient instead.
+      ignore_references_to: [Patient]
+
+    # ResearchStudies (the gICS consent domain) are only created once and never updated.
+    ResearchStudy:
+      request:
+        method: post
+        condition: ifNoneExist
+
+    # Example: follow the Patient references of Encounters, unlike the common setting.
+    # Encounter:
+    #   ignore_references_to: []
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# processing: how resources are filtered and changed on their way to the target. See docs/rules.md for the full
+# description of the rules and the expression language, with many examples.
+#
+# WITHOUT RULES NO RESOURCE IS CHANGED, including the id and meta.lastUpdated of the source server. Almost every
+# configuration needs at least the "*" finalize rule below.
+# ----------------------------------------------------------------------------------------------------------------------
+processing:
+  # Identifier systems per resource type, used in rules as identifierSystem('<Type>'). Optional, but every type used
+  # with identifierSystem() in a rule must be listed (checked at startup).
+  identifier_systems:
+    Patient: http://www.uniklinikum-jena.de/fhir/sid/patient
+    Consent: http://www.uniklinikum-jena.de/fhir/sid/consent
+    ResearchStudy: http://www.uniklinikum-jena.de/fhir/sid/consentSource
+
+  # Rules per resource type ("*" for all types, quoted), in three phases:
+  #   filter     before references are resolved      skip, extract, python
+  #   transform  after references are resolved       set, delete, set_identifier, python
+  #   finalize   after the Bundle entry request      set, delete, set_identifier, python
+  #              was built
+  # In each phase the "*" rules run first, then the resource type's rules, top to bottom. Each rule has exactly one
+  # operation. Conditions (when), extract sources (from) and the parts of values in {braces} are FHIRPath expressions,
+  # evaluated on the resource. Variables set by extract are available as %name, identifierSystem('<Type>') returns the
+  # system configured above, sha256() hashes its input. An expression in braces without a result stops the run.
+  #
+  # The rules below reproduce the processing of gICS Consents that was built into fhirsync 0.7 and older.
+  rules:
+    Consent:
+      filter:
+        # The patient id is only available in the display value '<idType> <id>' and must have 10 digits. Consents
+        # without a valid patient id are skipped with a warning, together with the resources they reference.
+        - extract:
+            name: pat_id
+            from: patient.display
+            pattern: '^\s*\S+\s+(\d{10})\s*$'
+      transform:
+        # Point to the hospital's patient (by its identifier) instead of gICS's internal Patient
+        - set:
+            path: patient.reference
+            value: "Patient?identifier={identifierSystem('Patient')}|{%pat_id}"
+        # A stable identifier from consent domain, policy and patient: repeated syncs update the same Consent
+        - set_identifier:
+            system: "{identifierSystem('Consent')}"
+            value: "{(organization[0].display + '+' + policy[0].uri + '+' + %pat_id).sha256()}"
+        # The display reveals the gICS signer id type, the reference is enough
+        - delete: patient.display
+    ResearchStudy:
+      transform:
+        # An identifier for the consent domain, from gICS's internal id
+        - set_identifier:
+            system: "{identifierSystem('ResearchStudy')}"
+            value: "{id}"
+        - set:
+            path: meta.profile[0]
+            value: http://fhir.de/ConsentManagement/StructureDefinition/Domain/ResearchStudy
+    "*":
+      transform:
+        # Where the data comes from
+        - set:
+            path: meta.source
+            value: http://www.uniklinikum-jena.de/fhir/origin/gics
+      finalize:
+        # Remove the source server's id and timestamp after the requests were built. Needed for conditional updates:
+        # many servers reject a PUT <Type>?identifier=... whose body contains a different id.
+        - delete: [id, meta.lastUpdated]
+

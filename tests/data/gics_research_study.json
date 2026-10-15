@@ -1,0 +1,54 @@
+{
+  "resourceType": "ResearchStudy",
+  "id": "468b895a-c809-11f1-8d48-d6456abb6135",
+  "meta": {
+    "lastUpdated": "2026-10-14T21:56:00.849+02:00",
+    "profile": [
+      "http://fhir.de/ConsentManagement/StructureDefinition/Domain/ResearchStudy"
+    ]
+  },
+  "extension": [
+    {
+      "url": "http://fhir.de/ConsentManagement/StructureDefinition/VersionFormat",
+      "extension": [
+        {
+          "url": "formatString",
+          "valueString": "major.minor.char"
+        }
+      ]
+    },
+    {
+      "url": "http://fhir.de/ConsentManagement/StructureDefinition/ContextIdentifier",
+      "extension": [
+        {
+          "url": "resourceType",
+          "valueCoding": {
+            "system": "http://hl7.org/fhir/resource-types",
+            "code": "Patient"
+          }
+        },
+        {
+          "url": "system",
+          "valueUri": "https://ths-greifswald.de/fhir/gics/identifiers/Pseudonym"
+        }
+      ]
+    },
+    {
+      "url": "http://fhir.de/ConsentManagement/StructureDefinition/ConsentMode",
+      "valueCoding": {
+        "system": "http://hl7.org/fhir/consent-provision-type",
+        "code": "deny",
+        "display": "Deny"
+      }
+    }
+  ],
+  "identifier": [
+    {
+      "system": "https://ths-greifswald.de/fhir/gics/",
+      "value": "MII"
+    }
+  ],
+  "title": "MII",
+  "status": "active",
+  "description": "Medizininformatik Initiative, externes Property aktualisiert am 11.12.2025"
+}

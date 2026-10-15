@@ -1,6 +1,8 @@
-/config.ini
-/dev-config.ini
-/out/
-/.idea/
-/*.egg-info/
+config.yaml
+config.yml
+out/
+.venv/
+.idea/
+.pytest_cache/
+*.egg-info/
 **/__pycache__

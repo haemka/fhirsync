@@ -12,6 +12,15 @@ wheels = [
 ]
 
 [[package]]
+name = "antlr4-python3-runtime"
+version = "4.13.2"
+source = { registry = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/5f/2cdf6f7aca3b20d3f316e9f505292e1f256a32089bd702034c29ebde6242/antlr4_python3_runtime-4.13.2.tar.gz", hash = "sha256:909b647e1d2fc2b70180ac586df3933e38919c85f98ccc656a96cd3f25ef3916", size = 117467, upload-time = "2024-08-03T19:00:12.757Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/03/a851e84fcbb85214dc637b6378121ef9a0dd61b4c65264675d8a5c9b1ae7/antlr4_python3_runtime-4.13.2-py3-none-any.whl", hash = "sha256:fe3835eb8d33daece0e799090eda89719dbccee7aa39ef94eed3818cafa5a7e8", size = 144462, upload-time = "2024-08-03T19:00:11.134Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.5.20"
 source = { registry = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" }
@@ -92,7 +101,7 @@ wheels = [
 
 [[package]]
 name = "dic-helper-toolkit"
-version = "0.9.9"
+version = "0.9.10"
 source = { registry = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" }
 dependencies = [
     { name = "certifi" },
@@ -107,9 +116,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/files/de6bd8bad66d82f206267332718d3544000bb6a82ca429c7be128422330cc2b5/dic_helper_toolkit-0.9.9.tar.gz", hash = "sha256:de6bd8bad66d82f206267332718d3544000bb6a82ca429c7be128422330cc2b5" }
+sdist = { url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/files/0d20531a2582c2ff507cb99bb5172b35f76586ccb782edd3d59a1d68a67a8e5a/dic_helper_toolkit-0.9.10.tar.gz", hash = "sha256:0d20531a2582c2ff507cb99bb5172b35f76586ccb782edd3d59a1d68a67a8e5a" }
 wheels = [
-    { url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/files/d43431ee857bb5e096c4d3549c116df102865cd2c83d4482997476bcab2936bf/dic_helper_toolkit-0.9.9-py3-none-any.whl", hash = "sha256:d43431ee857bb5e096c4d3549c116df102865cd2c83d4482997476bcab2936bf" },
+    { url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/files/6de802038d889b5690918b9dd1725835a12af8937cff8276e7488b40ab4ff9cb/dic_helper_toolkit-0.9.10-py3-none-any.whl", hash = "sha256:6de802038d889b5690918b9dd1725835a12af8937cff8276e7488b40ab4ff9cb" },
 ]
 
 [[package]]
@@ -138,19 +147,48 @@ wheels = [
 
 [[package]]
 name = "fhir-sync"
-version = "0.6.1"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "dic-helper-toolkit" },
     { name = "fhir-resources" },
-    { name = "paho-mqtt" },
+    { name = "fhirpathpy" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "responses" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "dic-helper-toolkit", specifier = ">=0.9.9", index = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" },
+    { name = "dic-helper-toolkit", specifier = ">=0.9.10", index = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" },
     { name = "fhir-resources", specifier = ">=8.0.0" },
-    { name = "paho-mqtt", specifier = "~=2.1.0" },
+    { name = "fhirpathpy", specifier = ">=2.0" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.0" },
+    { name = "responses", specifier = ">=0.26" },
+]
+
+[[package]]
+name = "fhirpathpy"
+version = "2.2.4"
+source = { registry = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" }
+dependencies = [
+    { name = "antlr4-python3-runtime" },
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f6/8a/d606a7bf9a8ef16898d28a252b99c214d5bcec68a34d5b68ab6f222f3bf5/fhirpathpy-2.2.4.tar.gz", hash = "sha256:ff592994edb7a30fd499e1462f3f7ec6d83568df58487e9d522ead2f7a85ffdb", size = 218241, upload-time = "2026-08-25T18:29:18.487Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/9a/d0ff5aae5cf5b688f300b5b21c604bfbfd23feee4451de5f980a0773a5c5/fhirpathpy-2.2.4-py3-none-any.whl", hash = "sha256:5ea363963598a9c8c23425b6594986dc8c8e33600656b70639e088f0c62c355d", size = 232572, upload-time = "2026-08-25T18:29:17.299Z" },
 ]
 
 [[package]]
@@ -187,15 +225,6 @@ source = { registry = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packa
 sdist = { url = "https://files.pythonhosted.org/packages/7d/fa/3944b40b07da9ce895c0e6303a5ab7d53da063554f534556b134a54d6093/packaging-26.3.tar.gz", hash = "sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79", size = 313412, upload-time = "2026-08-04T18:15:28.737Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl", hash = "sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c", size = 129956, upload-time = "2026-08-04T18:15:27.159Z" },
-]
-
-[[package]]
-name = "paho-mqtt"
-version = "2.1.0"
-source = { registry = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/39/15/0a6214e76d4d32e7f663b109cf71fb22561c2be0f701d67f93950cd40542/paho_mqtt-2.1.0.tar.gz", hash = "sha256:12d6e7511d4137555a3f6ea167ae846af2c7357b10bc6fa4f7c3968fc1723834", size = 148848, upload-time = "2024-04-29T19:52:55.591Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/cb/00451c3cf31790287768bb12c6bec834f5d292eaf3022afc88e14b8afc94/paho_mqtt-2.1.0-py3-none-any.whl", hash = "sha256:6db9ba9b34ed5bc6b6e3812718c7e06e2fd7444540df2455d2c51bd58808feee", size = 67219, upload-time = "2024-04-29T19:52:48.345Z" },
 ]
 
 [[package]]
@@ -323,6 +352,18 @@ wheels = [
 ]
 
 [[package]]
+name = "python-dateutil"
+version = "2.9.0.post0"
+source = { registry = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee498c46e004a0eb49bc148f2fd230864601a86dcf6db/python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3", size = 342432, upload-time = "2024-03-01T18:36:20.211Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
+]
+
+[[package]]
 name = "pyyaml"
 version = "6.0.3"
 source = { registry = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" }
@@ -408,6 +449,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f0/1a/4af3e6d659394b809838490b144e4ab8d7ed3b9fecc7ca78f5d2f79b1a3d/responses-0.26.2.tar.gz", hash = "sha256:9c9259b46a8349197edebf43cfa68a87e1a2802ef503ff8b2fecbabc0b45afd8", size = 84030, upload-time = "2026-07-03T16:44:50.325Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7c/28/693e1d9ebf72baa062ded80d837a035b86ce75eda5a269379e9e2b1008a8/responses-0.26.2-py3-none-any.whl", hash = "sha256:6fdfeabd58e5ec473b98dfe02e6d46d3173bd8dd573eff2ccccf1a05a5135364", size = 35609, upload-time = "2026-07-03T16:44:49.1Z" },
+]
+
+[[package]]
+name = "six"
+version = "1.17.0"
+source = { registry = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
 ]
 
 [[package]]

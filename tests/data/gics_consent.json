@@ -1,0 +1,575 @@
+{
+  "resourceType": "Consent",
+  "id": "4d835560-7b54-44b6-87ce-38a153ff3d9e",
+  "meta": {
+    "lastUpdated": "2026-10-14T21:56:04.082+02:00",
+    "profile": [
+      "https://www.medizininformatik-initiative.de/fhir/modul-consent/StructureDefinition/mii-pr-consent-einwilligung"
+    ]
+  },
+  "extension": [
+    {
+      "url": "http://fhir.de/ConsentManagement/StructureDefinition/DomainReference",
+      "extension": [
+        {
+          "url": "domain",
+          "valueReference": {
+            "reference": "ResearchStudy/468b895a-c809-11f1-8d48-d6456abb6135"
+          }
+        },
+        {
+          "url": "status",
+          "valueCoding": {
+            "system": "http://hl7.org/fhir/publication-status",
+            "code": "active"
+          }
+        }
+      ]
+    }
+  ],
+  "status": "active",
+  "scope": {
+    "coding": [
+      {
+        "system": "http://terminology.hl7.org/CodeSystem/consentscope",
+        "code": "research"
+      }
+    ]
+  },
+  "category": [
+    {
+      "coding": [
+        {
+          "system": "http://loinc.org",
+          "code": "57016-8"
+        }
+      ]
+    },
+    {
+      "coding": [
+        {
+          "system": "http://fhir.de/ConsentManagement/CodeSystem/ResultType",
+          "code": "consent-status"
+        }
+      ]
+    },
+    {
+      "coding": [
+        {
+          "system": "https://www.medizininformatik-initiative.de/fhir/modul-consent/CodeSystem/mii-cs-consent-version-modules",
+          "code": "2.16.840.1.113883.3.1937.777.24.2.184"
+        }
+      ]
+    }
+  ],
+  "patient": {
+    "reference": "Patient/47f5f6f4-c809-11f1-8d48-d6456abb6135",
+    "display": "Pseudonym 1000000001"
+  },
+  "dateTime": "2026-10-14T21:56:04+02:00",
+  "organization": [
+    {
+      "display": "MII"
+    }
+  ],
+  "policy": [
+    {
+      "uri": "2.16.840.1.113883.3.1937.777.24.2.184"
+    }
+  ],
+  "provision": {
+    "type": "deny",
+    "period": {
+      "start": "2026-01-15T10:00:00+01:00",
+      "end": "2056-01-15T10:00:00+01:00"
+    },
+    "provision": [
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.12",
+                "display": "KKDAT 5J retrospektiv speichern verarbeiten"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.2",
+                "display": "IDAT erheben"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.22",
+                "display": "BIOMAT wissenschaftlich nutzen"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.13",
+                "display": "KKDAT 5J retrospektiv wissenschaftlich nutzen"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.23",
+                "display": "BIOMAT Analysedaten zusammenfuehren Dritte"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.31",
+                "display": "Rekontaktierung Zusatzbefund"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.17",
+                "display": "KKDAT 5J prospektiv wissenschaftlich nutzen"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.20",
+                "display": "BIOMAT lagern verarbeiten"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.11",
+                "display": "KKDAT 5J retrospektiv uebertragen"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.38",
+                "display": "KKDAT 5J retrospektiv uebertragen KVNR"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2031-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.6",
+                "display": "MDAT erheben"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.16",
+                "display": "KKDAT 5J prospektiv speichern verarbeiten"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.8",
+                "display": "MDAT wissenschaftlich nutzen"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.27",
+                "display": "Rekontaktierung Verknüpfung Datenbanken"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.29",
+                "display": "Rekontaktierung weitere Studien"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.5",
+                "display": "IDAT bereitstellen"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2031-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.21",
+                "display": "BIOMAT Eigentum übertragen"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.7",
+                "display": "MDAT speichern, verarbeiten"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.3",
+                "display": "IDAT speichern, verarbeiten"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2031-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.19",
+                "display": "BIOMAT erheben"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.37",
+                "display": "Rekontaktierung Ergebnisse erheblicher Bedeutung"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2031-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.39",
+                "display": "KKDAT 5J prospektiv uebertragen KVNR"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "deny",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.28",
+                "display": "Rekontaktierung weitere Erhebung"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2031-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.25",
+                "display": "BIOMAT Zusatzmengen entnehmen"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.9",
+                "display": "MDAT zusammenfuehren Dritte"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2056-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.4",
+                "display": "IDAT zusammenfuehren Dritte"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "permit",
+        "period": {
+          "start": "2026-01-15T10:00:00+01:00",
+          "end": "2031-01-15T10:00:00+01:00"
+        },
+        "code": [
+          {
+            "coding": [
+              {
+                "system": "urn:oid:2.16.840.1.113883.3.1937.777.24.5.3",
+                "code": "2.16.840.1.113883.3.1937.777.24.5.3.15",
+                "display": "KKDAT 5J prospektiv uebertragen"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
