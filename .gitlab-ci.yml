@@ -1,0 +1,147 @@
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - when: always
+
+stages:
+  - build
+  - test
+  - package
+  - release
+
+default:
+  image: ghcr.io/astral-sh/uv:python3.12-alpine
+  tags:
+    - python
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache
+
+variables:
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+  UV_LINK_MODE: copy
+  PYPI_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/pypi"
+  # dic-helper-toolkit comes from the package registry of its project (354). The job token needs access to it:
+  # project 354, Settings > CI/CD > Job token permissions, add this project to the allowlist.
+  DIC_HELPERS_INDEX: "${CI_API_V4_URL}/projects/354/packages/pypi/simple"
+
+# Computes PROJECT_VERSION from pyproject.toml's version and stamps it into the
+# built wheel and sdist. On the default branch it is the bare base version (a
+# release); everywhere else it is a PEP 440 dev release carrying the pipeline
+# IID and commit SHA as local version, e.g. 0.9.7.dev42+g1a2b3c4d, so it sorts
+# before the release it leads up to and is never picked up without --pre.
+# (The "g" prefix keeps an all-digit SHA from being normalized as a number.)
+build:
+  stage: build
+  script:
+    - export BASE_VERSION=$(uv version --short)
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        export PROJECT_VERSION="$BASE_VERSION"
+      else
+        export PROJECT_VERSION="${BASE_VERSION}.dev${CI_PIPELINE_IID}+g${CI_COMMIT_SHORT_SHA}"
+        uv version --frozen "$PROJECT_VERSION"
+      fi
+    - echo "PROJECT_VERSION=$PROJECT_VERSION" >> build.env
+    - echo "Building version $PROJECT_VERSION of the package with uv"
+    - uv build
+    - uv cache prune --ci
+  artifacts:
+    paths:
+      - dist/
+    reports:
+      dotenv: build.env
+    when: always
+    expire_in: 3 months
+
+# Fails non-default-branch pipelines if pyproject.toml's version hasn't been
+# bumped relative to the default branch, so a forgotten bump is caught before
+# merge rather than causing a registry collision on the default branch.
+# NOTE: this only blocks the merge button if the project's merge checks
+# require pipelines to succeed (Settings > Merge requests > Merge checks >
+# "Pipelines must succeed") — the job alone is advisory.
+check_version_bump:
+  stage: build
+  rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH'
+  cache: []
+  before_script:
+    - apk add --no-cache git
+  script:
+    - git fetch origin "$CI_DEFAULT_BRANCH"
+    - git show FETCH_HEAD:pyproject.toml > /tmp/default-pyproject.toml
+    - CURRENT_VERSION=$(uv version --short)
+    - DEFAULT_VERSION=$(python -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["project"]["version"])' /tmp/default-pyproject.toml)
+    - |
+      if [ "$CURRENT_VERSION" = "$DEFAULT_VERSION" ]; then
+        echo "ERROR: pyproject.toml version ($CURRENT_VERSION) is unchanged from $CI_DEFAULT_BRANCH ($DEFAULT_VERSION)."
+        echo "Bump the version (e.g. uv version --bump patch) before merging into $CI_DEFAULT_BRANCH."
+        exit 1
+      fi
+    - 'echo "Version bump OK: $CI_DEFAULT_BRANCH has $DEFAULT_VERSION, this branch has $CURRENT_VERSION"'
+
+# Tests run against the built wheel (not the source tree), so they exercise
+# exactly what the package stage is about to publish. pytest and responses are
+# the dev dependency group of pyproject.toml. The command line tests run the
+# fhirsync command, so the venv's bin directory must be on PATH.
+test:
+  stage: test
+  dependencies:
+    - build
+  variables:
+    UV_INDEX_GITLAB_USERNAME: gitlab-ci-token
+    UV_INDEX_GITLAB_PASSWORD: "$CI_JOB_TOKEN"
+  script:
+    - uv venv .venv
+    - uv pip install --python .venv --index "gitlab=$DIC_HELPERS_INDEX" "$(ls dist/*.whl)" "pytest>=9.0" "responses>=0.26"
+    - PATH="$CI_PROJECT_DIR/.venv/bin:$PATH" .venv/bin/pytest tests/
+    - uv cache prune --ci
+
+# Supply-chain provenance step: publishes the built wheel and sdist to this
+# project's PyPI package registry, then re-downloads exactly those published
+# files and verifies their SHA-256 against both the registry's index and the
+# locally built files. The job's artifacts are that verified copy, so every
+# release is traceable to one specific published artifact rather than to
+# whatever was sitting in a build container's local filesystem.
+# On the default branch it refuses to publish a version that already exists in
+# the registry: no silent duplicate of a past release.
+package:
+  stage: package
+  dependencies:
+    - build
+  variables:
+    UV_PUBLISH_URL: "$PYPI_URL"
+    UV_PUBLISH_USERNAME: gitlab-ci-token
+    UV_PUBLISH_PASSWORD: "$CI_JOB_TOKEN"
+  script:
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        uv run --no-project --with requests ci/verify_published_package.py --assert-absent "$PYPI_URL/simple" dist/
+      fi
+    - echo "Publishing version $PROJECT_VERSION of the package to GitLab Package Registry"
+    - uv publish
+    - uv run --no-project --with requests ci/verify_published_package.py "$PYPI_URL/simple" dist/
+    - uv cache prune --ci
+  artifacts:
+    paths:
+      - dist/
+    when: always
+    expire_in: 3 months
+
+tag_release:
+  stage: release
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  dependencies:
+    - build
+  cache: []
+  before_script:
+    - apk add --no-cache git
+  script:
+    - git remote set-url origin "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    - git tag -f "v$PROJECT_VERSION" "$CI_COMMIT_SHA"
+    - git push origin "v$PROJECT_VERSION"
