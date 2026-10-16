@@ -41,3 +41,4 @@ dic-helper-toolkit = { index = "gitlab" }
 name = "gitlab"
 url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple"
 authenticate = "always"
+explicit = true
