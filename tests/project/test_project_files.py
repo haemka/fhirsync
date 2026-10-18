@@ -52,9 +52,9 @@ def test_dev_dependency_group():
     assert names == ["pytest", "responses"]
 
 
-# README "Installation": dic-helper-toolkit comes from the GitLab index named gitlab
-def test_gitlab_index():
+# README "Installation": dic-helper-toolkit comes from the GitLab index named py-dic-helper-toolkit
+def test_package_index():
     indexes = [index["name"] for index in PYPROJECT["tool"]["uv"]["index"]]
 
-    assert "gitlab" in indexes
-    assert PYPROJECT["tool"]["uv"]["sources"]["dic-helper-toolkit"] == {"index": "gitlab"}
+    assert "py-dic-helper-toolkit" in indexes
+    assert PYPROJECT["tool"]["uv"]["sources"]["dic-helper-toolkit"] == {"index": "py-dic-helper-toolkit"}

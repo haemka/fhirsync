@@ -93,11 +93,11 @@ test:
   dependencies:
     - build
   variables:
-    UV_INDEX_GITLAB_USERNAME: gitlab-ci-token
-    UV_INDEX_GITLAB_PASSWORD: "$CI_JOB_TOKEN"
+    UV_INDEX_PY_DIC_HELPER_TOOLKIT_USERNAME: gitlab-ci-token
+    UV_INDEX_PY_DIC_HELPER_TOOLKIT_PASSWORD: "$CI_JOB_TOKEN"
   script:
     - uv venv .venv
-    - uv pip install --python .venv --index "gitlab=$DIC_HELPERS_INDEX" "$(ls dist/*.whl)" "pytest>=9.0" "responses>=0.26"
+    - uv pip install --python .venv --index "py-dic-helper-toolkit=$DIC_HELPERS_INDEX" "$(ls dist/*.whl)" "pytest>=9.0" "responses>=0.26"
     - PATH="$CI_PROJECT_DIR/.venv/bin:$PATH" .venv/bin/pytest tests/
     - uv cache prune --ci
 

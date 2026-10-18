@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fhir-sync"
-version = "0.8.1"
+version = "0.9.0"
 description = "FHIR resource bundler and synchronization library"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -35,10 +35,10 @@ packages = ["fhirsync"]
 
 # GitLab package registry configuration
 [tool.uv.sources]
-dic-helper-toolkit = { index = "gitlab" }
+dic-helper-toolkit = { index = "py-dic-helper-toolkit" }
 
 [[tool.uv.index]]
-name = "gitlab"
+name = "py-dic-helper-toolkit"
 url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple"
 authenticate = "always"
 explicit = true

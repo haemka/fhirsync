@@ -21,40 +21,78 @@ import requests
 
 
 class _LinkParser(HTMLParser):
+    """Collects the links of a PEP 503 simple index page as {link text (file name): href}."""
+
     def __init__(self):
+        """Initialize the parser with no links collected."""
         super().__init__()
         self.links = {}
         self._href = None
 
     def handle_starttag(self, tag, attrs):
+        """Remember the href of an opening <a> tag until its text is read.
+
+        :param tag: The tag name.
+        :param attrs: The tag's attributes as (name, value) pairs.
+        """
         if tag == "a":
             self._href = dict(attrs).get("href")
 
     def handle_data(self, data):
+        """Store the remembered href under the link text, the file name.
+
+        :param data: The text inside the current tag.
+        """
         if self._href is not None and data.strip():
             self.links[data.strip()] = self._href
             self._href = None
 
     def handle_endtag(self, tag):
+        """Forget the href when an <a> tag closes without text.
+
+        :param tag: The tag name.
+        """
         if tag == "a":
             self._href = None
 
 
 def _sha256(data: bytes) -> str:
+    """The SHA-256 of the data as a hexadecimal string.
+
+    :param data: The data to hash.
+    :return: The hexadecimal digest.
+    """
     return hashlib.sha256(data).hexdigest()
 
 
 def _dist_files(dist_dir: Path) -> list:
+    """The wheels and sdists in a dist directory, sorted.
+
+    :param dist_dir: The directory uv build wrote to.
+    :return: The paths of the .whl and .tar.gz files.
+    """
     # uv build also places a .gitignore into dist/, so only pick up actual distributions.
     return sorted(p for p in dist_dir.iterdir() if p.is_file() and p.name.endswith((".whl", ".tar.gz")))
 
 
 def _project_name(path: Path) -> str:
+    """The normalized project name of a distribution file, as used in the simple index URL.
+
+    :param path: A wheel or sdist.
+    :return: The project name, e.g. dic-helper-toolkit.
+    """
     # Wheel and sdist filenames both start with the normalized project name, e.g. dic_helper_toolkit-1.0.0-...
     return path.name.split("-")[0].replace("_", "-").lower()
 
 
 def _index_links(session: requests.Session, simple_url: str, project: str) -> dict:
+    """The files the registry lists for a project.
+
+    :param session: The authenticated session.
+    :param simple_url: The simple index URL of the registry.
+    :param project: The normalized project name.
+    :return: {file name: absolute URL, including the #sha256= fragment}; empty if the project is not published yet.
+    """
     index_url = f"{simple_url.rstrip('/')}/{project}/"
     response = session.get(index_url)
     if response.status_code == 404:
@@ -66,6 +104,10 @@ def _index_links(session: requests.Session, simple_url: str, project: str) -> di
 
 
 def main() -> int:
+    """Run the check given on the command line.
+
+    :return: The exit code: 0 if the check passed, 1 otherwise.
+    """
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("simple_url", help="Simple index URL of the registry, e.g. .../packages/pypi/simple")
     parser.add_argument("dist_dir", type=Path, help="Directory holding the locally built wheel and sdist")

@@ -31,12 +31,16 @@ class SyncResult:
 class ResourceBundler:
     """
     A class for bundling and processing FHIR resources.
-
-    :param config: The validated fhirsync configuration.
-    :type config: Config
     """
 
     def __init__(self, config: Config) -> None:
+        """
+        Initialize the bundler: create the source and (with target mode server) target clients and the rule engine.
+        With OAuth 2.0, the clients already fetch their tokens here.
+
+        :param config: The validated fhirsync configuration.
+        :type config: Config
+        """
         self.config = config
         self.source_client = self._client(config.source, next_param=config.source.next_param)
         self.target_client = self._client(config.target) if config.target.mode == "server" else None
@@ -342,9 +346,22 @@ class ResourceBundler:
         resource_dict = resource.model_dump()
 
         def _is_reference(value):
+            """
+            Whether a JSON value is a FHIR Reference with a reference text.
+
+            :param value: Any JSON value of the resource.
+            :return: True for an object with a 'reference' string.
+            :rtype: bool
+            """
             return isinstance(value, dict) and 'reference' in value and isinstance(value['reference'], str)
 
         def _extract_from_dict(data, current_path):
+            """
+            Add the references of a JSON object and of everything below it to references.
+
+            :param data: A JSON object of the resource.
+            :param current_path: The path of data in the resource, e.g. ['extension', 0].
+            """
             for key, value in data.items():
                 new_path = current_path + [key]
                 if _is_reference(value):

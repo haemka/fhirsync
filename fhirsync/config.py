@@ -50,6 +50,14 @@ class ConfigModel(BaseModel):
         messages = []
 
         def walk(model: ConfigModel, path: str) -> None:
+            """
+            Collect the messages of a section and, recursively, of the sections below it.
+
+            :param model: The section.
+            :type model: ConfigModel
+            :param path: The section's path in the configuration file, e.g. bundling.resources.Consent.
+            :type path: str
+            """
             messages.extend(f"{path}.{name}: ignored, {reason}" if path else f"{name}: ignored, {reason}"
                             for name, reason in model.ignored_settings())
             for name in type(model).model_fields:
@@ -73,6 +81,13 @@ class Auth(ConfigModel):
 
     @model_validator(mode="after")
     def check_complete(self) -> "Auth":
+        """
+        Check that basic authentication and OAuth 2.0 are each complete or not given at all.
+
+        :return: The validated section.
+        :rtype: Auth
+        :raises ValueError: For a username without password (or the other way round), or an incomplete OAuth 2.0.
+        """
         self.require_together("username", "password")
         # OAuth 2.0 is only used if all four are set, otherwise the client silently falls back to basic auth
         self.require_together("auth_url", "realm", "client_id", "client_secret")
@@ -96,7 +111,14 @@ class Source(ConfigModel):
     @field_validator("request_params")
     @classmethod
     def empty_as_none(cls, value):
-        # A section with all entries commented out is null in YAML
+        """
+        Accept a resource type without parameters: a section with all entries commented out is null in YAML.
+
+        :param value: The search parameters per resource type, as read.
+        :type value: Dict[str, Optional[Dict[str, Union[str, List[str]]]]]
+        :return: The search parameters, with an empty mapping instead of null.
+        :rtype: Dict[str, Dict[str, Union[str, List[str]]]]
+        """
         return {resource_type: params or {} for resource_type, params in value.items()}
 
     def request_params_for(self, resource_type: str) -> Dict[str, Union[str, List[str]]]:
@@ -114,6 +136,13 @@ class Target(ConfigModel):
 
     @model_validator(mode="after")
     def check_mode(self) -> "Target":
+        """
+        Check that the mode has what it needs: base_url for server, outdir for file.
+
+        :return: The validated section.
+        :rtype: Target
+        :raises ValueError: If base_url or outdir is missing for the mode.
+        """
         if self.mode == "server" and not self.base_url:
             raise ValueError("mode server needs base_url")
         if self.mode == "file" and not self.outdir:
@@ -121,6 +150,12 @@ class Target(ConfigModel):
         return self
 
     def ignored_settings(self) -> List[Tuple[str, str]]:
+        """
+        The settings of the other mode: outdir with server; base_url, auth, ca_file and rfc5280 with file.
+
+        :return: The ignored settings as (name, reason).
+        :rtype: List[Tuple[str, str]]
+        """
         unused = ("outdir",) if self.mode == "server" else ("base_url", "auth", "ca_file", "rfc5280")
         return [(name, f"not used in mode {self.mode}") for name in self.explicit(*unused)]
 
@@ -166,9 +201,25 @@ class Bundling(ConfigModel):
         return default
 
     def reference_mode_for(self, resource_type: str) -> str:
+        """
+        The effective reference_mode of a resource type: its own, otherwise the common one, otherwise identifier.
+
+        :param resource_type: The resource type.
+        :type resource_type: str
+        :return: 'identifier' or 'as_is'.
+        :rtype: str
+        """
         return self._setting_for(resource_type, "reference_mode", "identifier")
 
     def ignore_references_to_for(self, resource_type: str) -> List[str]:
+        """
+        The effective ignore_references_to of a resource type: its own list replaces the common one, default none.
+
+        :param resource_type: The resource type.
+        :type resource_type: str
+        :return: The resource types whose references are not followed.
+        :rtype: List[str]
+        """
         return list(self._setting_for(resource_type, "ignore_references_to", []))
 
     def request_for(self, resource_type: str) -> Request:
@@ -181,6 +232,12 @@ class Bundling(ConfigModel):
         return Request(**values)
 
     def ignored_settings(self) -> List[Tuple[str, str]]:
+        """
+        The request settings that don't fit the effective method: url with post, condition with put.
+
+        :return: The ignored settings as (path below bundling, reason).
+        :rtype: List[Tuple[str, str]]
+        """
         ignored = []
         for key, settings in self.resources.items():
             if not settings.request:
@@ -204,12 +261,25 @@ class Processing(ConfigModel):
 
     @model_validator(mode="after")
     def check_rules(self) -> "Processing":
+        """
+        Check all rule expressions at startup, with RuleEngine.check().
+
+        :return: The validated section.
+        :rtype: Processing
+        :raises ValueError: With all invalid expressions, one per line.
+        """
         problems = self.engine().check()
         if problems:
             raise ValueError("invalid rule expressions:\n    " + "\n    ".join(problems))
         return self
 
     def engine(self) -> RuleEngine:
+        """
+        The rule engine for these rules and identifier systems.
+
+        :return: A new rule engine.
+        :rtype: RuleEngine
+        """
         return RuleEngine(self.rules, self.identifier_systems)
 
 
@@ -237,6 +307,15 @@ def substitute_env(value: Any, path: str = "") -> Any:
         return value
 
     def replace(match: re.Match) -> str:
+        """
+        The replacement for one ${NAME} or ${NAME:-default}.
+
+        :param match: The match of ENV_VARIABLE.
+        :type match: re.Match
+        :return: The variable's value, otherwise the default.
+        :rtype: str
+        :raises ConfigError: If the variable is not set and has no default.
+        """
         name, default = match.group(1), match.group(2)
         if name in os.environ:
             return os.environ[name]

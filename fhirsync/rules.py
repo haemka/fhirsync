@@ -62,6 +62,13 @@ class Extract(Model):
 
     @model_validator(mode="after")
     def check(self) -> "Extract":
+        """
+        Check the variable name and compile the pattern, so that invalid ones are reported at startup.
+
+        :return: The validated rule.
+        :rtype: Extract
+        :raises ValueError: For an invalid variable name or regular expression.
+        """
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.name):
             raise ValueError(f"invalid variable name '{self.name}'")
         if self.pattern is not None:
@@ -78,6 +85,13 @@ class Set(Model):
 
     @model_validator(mode="after")
     def check(self) -> "Set":
+        """
+        Check the element path.
+
+        :return: The validated rule.
+        :rtype: Set
+        :raises ValueError: For an invalid element path.
+        """
         check_path(self.path)
         return self
 
@@ -92,6 +106,13 @@ class Python(Model):
 
     @model_validator(mode="after")
     def check(self) -> "Python":
+        """
+        Check that the function is given as module:function. Whether it exists is only checked when it is called.
+
+        :return: The validated rule.
+        :rtype: Python
+        :raises ValueError: If the colon is missing.
+        """
         if ":" not in self.function:
             raise ValueError("function must be given as module:function")
         return self
@@ -109,13 +130,27 @@ class Rule(Model):
     @model_validator(mode="before")
     @classmethod
     def skip_shorthand(cls, data: Any) -> Any:
-        # 'skip: {}' and 'skip:' (null) both mean: skip unconditionally
+        """
+        Accept 'skip:' (null in YAML) like 'skip: {}': both mean skip unconditionally.
+
+        :param data: The rule as read from the configuration.
+        :type data: Any
+        :return: The rule, with an empty skip mapping instead of null.
+        :rtype: Any
+        """
         if isinstance(data, dict) and "skip" in data and data["skip"] is None:
             data = {**data, "skip": {}}
         return data
 
     @model_validator(mode="after")
     def check(self) -> "Rule":
+        """
+        Check that the rule has exactly one operation, and that the element paths of delete are valid.
+
+        :return: The validated rule.
+        :rtype: Rule
+        :raises ValueError: For none or several operations, or an invalid element path.
+        """
         given = self.operations()
         if len(given) != 1:
             raise ValueError(f"a rule needs exactly one operation of {', '.join(Rule.model_fields)}, "
@@ -126,12 +161,30 @@ class Rule(Model):
         return self
 
     def operations(self) -> List[str]:
+        """
+        The operations given in this rule.
+
+        :return: The names of the operations that are set, e.g. ['set'].
+        :rtype: List[str]
+        """
         return [name for name in Rule.model_fields if getattr(self, name) is not None]
 
     def operation(self) -> str:
+        """
+        The operation of this rule, after check() made sure there is exactly one.
+
+        :return: The name of the operation, e.g. 'set'.
+        :rtype: str
+        """
         return self.operations()[0]
 
     def paths_to_delete(self) -> List[str]:
+        """
+        The element paths of a delete rule, also when a single path is given as text.
+
+        :return: The element paths.
+        :rtype: List[str]
+        """
         return [self.delete] if isinstance(self.delete, str) else list(self.delete)
 
 
@@ -143,6 +196,13 @@ class RuleSet(Model):
 
     @model_validator(mode="after")
     def check_phases(self) -> "RuleSet":
+        """
+        Check that every rule's operation is allowed in its phase (PHASE_OPERATIONS).
+
+        :return: The validated rule set.
+        :rtype: RuleSet
+        :raises ValueError: For an operation that is not allowed in its phase.
+        """
         for phase in PHASES:
             for index, rule in enumerate(getattr(self, phase)):
                 if rule.operation() not in PHASE_OPERATIONS[phase]:
@@ -152,6 +212,13 @@ class RuleSet(Model):
 
 
 def check_path(path: str) -> None:
+    """
+    Check an element path of set or delete, e.g. patient.reference or meta.profile[0].
+
+    :param path: The element path.
+    :type path: str
+    :raises ValueError: If it isn't a valid element path.
+    """
     if not ELEMENT_PATH.match(path):
         raise ValueError(f"invalid element path '{path}', expected e.g. patient.reference or meta.profile[0]")
 
@@ -168,13 +235,17 @@ def parse_path(path: str) -> List[Union[str, int]]:
 
 
 class RuleEngine:
-    """Applies the configured rules to resources.
-
-    :param rules: Rule sets per resource type, '*' for all types.
-    :param identifier_systems: Identifier systems per resource type, for identifierSystem('<Type>').
-    """
+    """Applies the configured rules to resources."""
 
     def __init__(self, rules: Dict[str, RuleSet], identifier_systems: Dict[str, str]) -> None:
+        """
+        Initialize the engine with the rules and the fhirsync functions for FHIRPath.
+
+        :param rules: Rule sets per resource type, '*' for all types.
+        :type rules: Dict[str, RuleSet]
+        :param identifier_systems: Identifier systems per resource type, for identifierSystem('<Type>').
+        :type identifier_systems: Dict[str, str]
+        """
         self.rules = rules
         self.identifier_systems = identifier_systems
         self.functions = {
@@ -184,6 +255,17 @@ class RuleEngine:
         }
 
     def _identifier_system(self, inputs: List[Any], resource_type: str) -> List[str]:
+        """
+        The FHIRPath function identifierSystem('<Type>'): the identifier system configured for a resource type.
+
+        :param inputs: The input collection of the function call, not used.
+        :type inputs: List[Any]
+        :param resource_type: The resource type given as argument.
+        :type resource_type: str
+        :return: The identifier system, as a FHIRPath collection.
+        :rtype: List[str]
+        :raises RuleError: If no identifier system is configured for the type.
+        """
         if resource_type not in self.identifier_systems:
             raise RuleError(f"no identifier system configured for {resource_type} in processing.identifier_systems")
         return [self.identifier_systems[resource_type]]
@@ -213,6 +295,14 @@ class RuleEngine:
 
     @staticmethod
     def _expressions(rule: Rule) -> List[str]:
+        """
+        All FHIRPath expressions of a rule: 'when', 'from', and the expressions in braces of its templates.
+
+        :param rule: The rule.
+        :type rule: Rule
+        :return: The expressions.
+        :rtype: List[str]
+        """
         expressions = []
         if rule.skip and rule.skip.when:
             expressions.append(rule.skip.when)
@@ -260,6 +350,22 @@ class RuleEngine:
                 from None
 
     def _apply_rule(self, rule: Rule, data: Dict, variables: Dict[str, str], location: str) -> Optional[Dict]:
+        """
+        Apply one rule to a resource.
+
+        :param rule: The rule.
+        :type rule: Rule
+        :param data: The resource as JSON dict, changed in place by set, delete and set_identifier.
+        :type data: Dict
+        :param variables: The variables; extract adds to them.
+        :type variables: Dict[str, str]
+        :param location: The rule's place in the configuration, e.g. processing.rules.Consent.transform[1].
+        :type location: str
+        :return: The resource, or None if the rule skipped it.
+        :rtype: Optional[Dict]
+        :raises RuleError: For an extract without value and on_mismatch error, a template without value, or
+            set_identifier on a resource type without identifier.
+        """
         reference = f"{data['resourceType']}/{data.get('id')}"
         if rule.skip:
             if rule.skip.when is None or self._is_true(data, rule.skip.when, variables):
@@ -302,17 +408,77 @@ class RuleEngine:
         return data
 
     def _evaluate(self, data: Dict, expression: str, variables: Dict[str, str]) -> List[Any]:
+        """
+        Evaluate a FHIRPath expression on a resource, with the variables and the fhirsync functions.
+
+        :param data: The resource as JSON dict.
+        :type data: Dict
+        :param expression: The FHIRPath expression.
+        :type expression: str
+        :param variables: The variables, available as %name.
+        :type variables: Dict[str, str]
+        :return: The result collection.
+        :rtype: List[Any]
+        """
         return evaluate(data, expression, variables, FHIR_MODEL, options={"userInvocationTable": self.functions})
 
     def _first(self, data: Dict, expression: str, variables: Dict[str, str]) -> Optional[str]:
+        """
+        The first result of a FHIRPath expression, as text.
+
+        :param data: The resource as JSON dict.
+        :type data: Dict
+        :param expression: The FHIRPath expression.
+        :type expression: str
+        :param variables: The variables, available as %name.
+        :type variables: Dict[str, str]
+        :return: The first result as text, None for an empty result.
+        :rtype: Optional[str]
+        """
         result = self._evaluate(data, expression, variables)
         return str(result[0]) if result else None
 
     def _is_true(self, data: Dict, expression: str, variables: Dict[str, str]) -> bool:
+        """
+        Whether a FHIRPath condition is true: its result must be exactly [true], an empty result is false.
+
+        :param data: The resource as JSON dict.
+        :type data: Dict
+        :param expression: The FHIRPath condition.
+        :type expression: str
+        :param variables: The variables, available as %name.
+        :type variables: Dict[str, str]
+        :return: True if the condition is true.
+        :rtype: bool
+        """
         return self._evaluate(data, expression, variables) == [True]
 
     def _render(self, data: Dict, template: str, variables: Dict[str, str], location: str) -> str:
+        """
+        Fill a template: every {expression} is replaced by its first result, {{ and }} are literal braces.
+
+        :param data: The resource as JSON dict.
+        :type data: Dict
+        :param template: The template.
+        :type template: str
+        :param variables: The variables, available as %name.
+        :type variables: Dict[str, str]
+        :param location: The rule's place in the configuration, for the error message.
+        :type location: str
+        :return: The filled template.
+        :rtype: str
+        :raises RuleError: If an expression has no result.
+        """
         def replace(match: re.Match) -> str:
+            """
+            The replacement for one placeholder.
+
+            :param match: The match of PLACEHOLDER: '{{', '}}' or '{expression}'.
+            :type match: re.Match
+            :return: The literal brace, or the first result of the expression.
+            :rtype: str
+            :raises RuleError: If the expression has no result.
+            """
             if match.group(0) in ("{{", "}}"):
                 return match.group(0)[0]
             value = self._first(data, match.group(1), variables)
@@ -324,6 +490,16 @@ class RuleEngine:
 
     @staticmethod
     def _set(data: Dict, steps: List[Union[str, int]], value: Any) -> None:
+        """
+        Set an element, creating the elements and lists on the way. An index one past the end appends.
+
+        :param data: The resource as JSON dict, changed in place.
+        :type data: Dict
+        :param steps: The element path from parse_path(), e.g. ['meta', 'profile', 0].
+        :type steps: List[Union[str, int]]
+        :param value: The value to set.
+        :type value: Any
+        """
         node: Any = data
         for step, following in zip(steps, steps[1:]):
             container = [] if isinstance(following, int) else {}
@@ -344,6 +520,14 @@ class RuleEngine:
 
     @staticmethod
     def _delete(data: Dict, steps: List[Union[str, int]]) -> None:
+        """
+        Delete an element; nothing happens if it doesn't exist.
+
+        :param data: The resource as JSON dict, changed in place.
+        :type data: Dict
+        :param steps: The element path from parse_path(), e.g. ['meta', 'lastUpdated'].
+        :type steps: List[Union[str, int]]
+        """
         node: Any = data
         for step in steps[:-1]:
             try:
@@ -358,6 +542,14 @@ class RuleEngine:
 
     @staticmethod
     def _log(level: str, message: str) -> None:
+        """
+        Log the message of a skip rule at its configured level.
+
+        :param level: 'warning', 'info' or 'none' (not logged).
+        :type level: str
+        :param message: The message.
+        :type message: str
+        """
         if level == "warning":
             logger.warning(message)
         elif level == "info":
@@ -365,5 +557,15 @@ class RuleEngine:
 
     @staticmethod
     def _function(name: str) -> Callable[[Dict, Dict[str, str]], Optional[Dict]]:
+        """
+        Import the function of a python rule.
+
+        :param name: The function as module:function.
+        :type name: str
+        :return: The function, called with the resource dict and the variables.
+        :rtype: Callable[[Dict, Dict[str, str]], Optional[Dict]]
+        :raises ImportError: If the module can't be imported.
+        :raises AttributeError: If the module has no such function.
+        """
         module, _, function = name.partition(":")
         return getattr(importlib.import_module(module), function)

@@ -78,12 +78,12 @@ uv sync
 ```
 
 `dic-helper-toolkit` comes from a GitLab package index that requires authentication (`[[tool.uv.index]]` named
-`gitlab` in `pyproject.toml`). Give uv the credentials, for example with a GitLab access token with the
-`read_api` scope:
+`py-dic-helper-toolkit` in `pyproject.toml`). Give uv the credentials, for example with a GitLab access token with
+the `read_api` scope:
 
 ```sh
-export UV_INDEX_GITLAB_USERNAME=<username>
-export UV_INDEX_GITLAB_PASSWORD=<access token>
+export UV_INDEX_PY_DIC_HELPER_TOOLKIT_USERNAME=<username>
+export UV_INDEX_PY_DIC_HELPER_TOOLKIT_PASSWORD=<access token>
 uv sync
 ```
 

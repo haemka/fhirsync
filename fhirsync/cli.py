@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 def run() -> None:
+    """
+    The fhirsync command: configure logging, read the command line and the configuration, and run the query.
+    Exits with code 2 for an invalid command line or configuration.
+    """
     logging.basicConfig(format='%(asctime)s %(levelname)-8s %(name)s: %(message)s',
                         level=logging.INFO,
                         datefmt='%Y-%m-%d %H:%M:%S')
