@@ -24,8 +24,8 @@ TWO_PATIENTS = {"resourceType": "Bundle", "type": "searchset", "entry": [
 
 # README "Using fhirsync as a library": the public API is importable from the package
 def test_public_api():
-    assert fhirsync.__all__ == ["Config", "ConfigError", "ConfigModel", "ResourceBundler", "RuleError", "SyncResult",
-                                "load_config", "load_yaml"]
+    assert fhirsync.__all__ == ["Config", "ConfigError", "ConfigModel", "MissingReferenceError", "ResourceBundler",
+                                "RuleError", "SyncResult", "load_config", "load_yaml"]
 
 
 # README "Using fhirsync as a library": importing fhirsync doesn't configure logging, that is up to the application

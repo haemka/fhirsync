@@ -1,18 +1,18 @@
+import logging
 import os
 import uuid
-import logging
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Iterator, Union
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 import requests.exceptions
 from dic_helpers.fhir_client import FHIRClient
-from fhir.resources.R4B.resource import Resource
 from fhir.resources.R4B.bundle import Bundle, BundleEntry, BundleEntryRequest
 from fhir.resources.R4B.identifier import Identifier
-from requests import HTTPError
+from fhir.resources.R4B.resource import Resource
 
 from fhirsync.config import Config, Source, Target
 from fhirsync.rules import RuleEngine
+from fhirsync.sources import FileSource, ServerSource
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,10 @@ class SyncResult:
     rejected: int = 0
 
 
+class MissingReferenceError(Exception):
+    """A reference whose target the source doesn't have, with on_missing_reference error."""
+
+
 class ResourceBundler:
     """
     A class for bundling and processing FHIR resources.
@@ -35,14 +39,21 @@ class ResourceBundler:
 
     def __init__(self, config: Config) -> None:
         """
-        Initialize the bundler: create the source and (with target mode server) target clients and the rule engine.
-        With OAuth 2.0, the clients already fetch their tokens here.
+        Initialize the bundler: create the source (a server client, or all files read), the target client (with
+        target mode server) and the rule engine. With OAuth 2.0, the clients already fetch their tokens here.
 
         :param config: The validated fhirsync configuration.
         :type config: Config
         """
         self.config = config
-        self.source_client = self._client(config.source, next_param=config.source.next_param)
+        self.source: Union[ServerSource, FileSource]
+        if config.source.type == "server":
+            self.source_client: Optional[FHIRClient] = self._client(config.source,
+                                                                    next_param=config.source.next_param)
+            self.source = ServerSource(self.source_client)
+        else:
+            self.source_client = None
+            self.source = FileSource(config.source)
         self.target_client = self._client(config.target) if config.target.mode == "server" else None
         self.rules: RuleEngine = config.processing.engine()
 
@@ -61,6 +72,32 @@ class ResourceBundler:
         options = {key: value for key, value in options.items() if value is not None}
         return FHIRClient(base_url=section.base_url, ca_file=ca_file, rfc5280=rfc5280, **auth, **options)
 
+    def run(self, searches: Optional[List[str]] = None) -> SyncResult:
+        """
+        Run what the configuration describes: for a server source every search, for a files source all resources of
+        the files (of the configured resource_types).
+
+        :param searches: Searches instead of source.searches, e.g. from -q; only for a server source.
+        :type searches: Optional[List[str]]
+        :return: The number of Bundles and entries written, added up over all searches.
+        :rtype: SyncResult
+        :raises ValueError: For searches with a files source, or a server source without searches.
+        """
+        if isinstance(self.source, FileSource):
+            if searches:
+                raise ValueError("Searches need a source of type server.")
+            return self._bundle_results(self.source.pages())
+        searches = searches or self.config.source.searches
+        if not searches:
+            raise ValueError("No searches: configure source.searches or give a search.")
+        total = SyncResult()
+        for search in searches:
+            result = self.fetch_resources(search)
+            total.bundles += result.bundles
+            total.entries += result.entries
+            total.rejected += result.rejected
+        return total
+
     def fetch_resources(self, search_path: str,
                         params: Optional[Dict[str, Union[str, List[str]]]] = None) -> SyncResult:
         """
@@ -73,9 +110,10 @@ class ResourceBundler:
         :type params: Optional[Dict[str, Union[str, List[str]]]]
         :return: The number of Bundles and entries written.
         :rtype: SyncResult
+        :raises ValueError: For a files source, which has no searches.
         """
-        logger.info("Started Processing")
-        result = SyncResult()
+        if not isinstance(self.source, ServerSource):
+            raise ValueError("Searches need a source of type server.")
         if "?" in search_path:
             search_resource_type, search_params = search_path.split("?", maxsplit=1)
             params = (self.get_request_params(search_resource_type) | self.parse_query_params(search_params)
@@ -83,17 +121,30 @@ class ResourceBundler:
         else:
             search_resource_type = search_path
             params = self.get_request_params(search_resource_type) | (params or {})
-        for bundle in self.source_client.search(search_resource_type, params=params):
-            if bundle.entry is None:
-                logger.debug(f"Ignoring empty bundle with id {bundle.id}")
+        return self._bundle_results(self.source.pages(search_resource_type, params))
+
+    def _bundle_results(self, pages: Iterator[List[Resource]]) -> SyncResult:
+        """
+        Process the results with their references, put them into Bundles of bundle.size results and write the
+        Bundles to the target. With bundle.size 0, every page is one Bundle.
+
+        :param pages: The results, as pages: search result pages, or the files of a files source.
+        :type pages: Iterator[List[Resource]]
+        :return: The number of Bundles and entries written.
+        :rtype: SyncResult
+        """
+        logger.info("Started Processing")
+        result = SyncResult()
+        for page in pages:
+            if not page:
+                logger.debug("Ignoring empty page")
                 continue
-            logger.debug(f"Fetched a bundle with {bundle.total} entries.")
 
             current_bundle = None
             bundle_settings = self.config.bundling.bundle
             max_bundle_size = bundle_settings.size
 
-            for num, entry in enumerate(bundle.entry):
+            for num, resource in enumerate(page):
                 # Initialize an empty Bundle if needed
                 if current_bundle is None:
                     current_bundle = Bundle(
@@ -104,7 +155,7 @@ class ResourceBundler:
                     )
 
                 # Process entry and add to bundle
-                for processed_entry in self.process_entry(entry):
+                for processed_entry in self.process_entry(BundleEntry(resource=resource)):
                     if not self.resource_exists_in_bundle(current_bundle, processed_entry.resource):
                         current_bundle.entry.append(processed_entry)
                     else:
@@ -118,7 +169,7 @@ class ResourceBundler:
 
             # Handle remaining entries after loop
             if current_bundle is not None and len(current_bundle.entry) > 0:
-                logger.debug(f"Sending last bundle to ouput.")
+                logger.debug("Sending last bundle to output.")
                 current_bundle = self.post_process_bundle(current_bundle)
                 self._handle_bundle_output(current_bundle, result)
         logger.info(f"Finished Processing: {result.bundles} Bundles with {result.entries} entries written, "
@@ -277,11 +328,11 @@ class ResourceBundler:
         references = self.extract_references(resource)
         for reference in references:
             if reference.get('resource_type') not in bundling.ignore_references_to_for(resource_type):
-                for referenced_resource in self.fetch_reference(reference):
+                for referenced_resource in self.fetch_reference(reference, resource):
                     for processed_reference_resource in self.process_resource(referenced_resource):
                         if bundling.reference_mode_for(resource_type) == 'identifier':
                             if reference.get('type') != 'logical' or 'identifier' not in reference.get('params').keys():
-                                identifier = self.get_primary_identifier(processed_reference_resource)
+                                identifier = self._identifier(processed_reference_resource)
                                 new_reference = f"{processed_reference_resource.get_resource_type()}?identifier={identifier.system}|{identifier.value}"
                                 resource = self.update_reference(resource, reference.get('path'), new_reference)
                         yield processed_reference_resource
@@ -293,27 +344,60 @@ class ResourceBundler:
 
         yield resource
 
-    def fetch_reference(self, reference: Dict[str, Any]) -> Iterator[Resource]:
+    def fetch_reference(self, reference: Dict[str, Any], referencing: Resource) -> Iterator[Any]:
         """
-        Fetch a referenced resource.
+        Fetch a referenced resource from the source. A reference the source doesn't have is handled according to
+        on_missing_reference of the referencing resource's type.
 
-        :param reference: A dictionary containing reference information.
+        :param reference: A dictionary containing reference information, from extract_references().
         :type reference: Dict[str, Any]
-        :return: An iterator of fetched Resource objects.
-        :rtype: Iterator[Resource]
+        :param referencing: The resource that contains the reference.
+        :type referencing: Resource
+        :return: The referenced resource; for a Type?<parameters> reference the search result pages (known
+            limitation, docs/rules.md section 8); nothing if the source doesn't have it and on_missing_reference
+            is warning.
+        :rtype: Iterator[Any]
+        :raises MissingReferenceError: If the source doesn't have it and on_missing_reference is error.
         """
         if reference.get('type') == 'logical':
             logger.info(f"Searching for reference {reference}...")
             params = reference.get('params') | self.get_request_params(reference.get('resource_type'))
-            reference_bundle = self.source_client.search(reference.get('resource_type'), params=params)
-            for entry in reference_bundle:
-                yield entry
+            pages = self.source.search(reference.get('resource_type'), params)
+            if not pages:
+                self._missing_reference(reference, referencing)
+            yield from pages
         elif reference.get('type') == 'canonical':
             logger.info(f"Fetching reference {reference.get('resource_type')}/{reference.get('resource_id')}...")
-            referenced_resource = self.source_client.get_resource(reference.get('resource_type'), reference.get('resource_id'))
-            yield referenced_resource
+            referenced_resource = self.source.read(reference.get('resource_type'), reference.get('resource_id'))
+            if referenced_resource is None:
+                self._missing_reference(reference, referencing)
+            else:
+                yield referenced_resource
         else:
             raise ValueError(f"Unknown reference type {reference.get('type')}")
+
+    def _missing_reference(self, reference: Dict[str, Any], referencing: Resource) -> None:
+        """
+        Handle a reference the source doesn't have: raise with on_missing_reference error, otherwise log a warning.
+        The reference stays unchanged, as nothing is fetched for it.
+
+        :param reference: A dictionary containing reference information, from extract_references().
+        :type reference: Dict[str, Any]
+        :param referencing: The resource that contains the reference.
+        :type referencing: Resource
+        :raises MissingReferenceError: With on_missing_reference error.
+        """
+        if reference.get('type') == 'canonical':
+            target = f"{reference.get('resource_type')}/{reference.get('resource_id')}"
+        else:
+            target = f"{reference.get('resource_type')}?" + "&".join(
+                f"{name}={value}" for name, value in reference.get('params').items())
+        resource_type = referencing.get_resource_type()
+        message = f"Reference {target} of {resource_type}/{referencing.id} not found in the source"
+        if self.config.bundling.on_missing_reference_for(resource_type) == "error":
+            raise MissingReferenceError(f"{message}. Set bundling.resources.{resource_type}.on_missing_reference to "
+                                        f"warning to continue without it.")
+        logger.warning(f"{message}, the reference is left unchanged.")
 
     @staticmethod
     def resource_exists_in_bundle(bundle: Bundle, resource: Resource) -> bool:
@@ -365,32 +449,44 @@ class ResourceBundler:
             for key, value in data.items():
                 new_path = current_path + [key]
                 if _is_reference(value):
-                    ref = value['reference']
-                    try:
-                        if '/' in ref and ref.split('/')[1]:
-                            references.append({
-                                'type': 'canonical',
-                                'resource_type': ref.split('/')[0],
-                                'resource_id': ref.split('/')[1],
-                                'path': new_path
-                            })
-                        elif '?' in ref:
-                            references.append({
-                                'type': 'logical',
-                                'resource_type': ref.split('?')[0],
-                                'params': dict(param.split('=', 1) for param in ref.split('?')[1].split('&')),
-                                'path': new_path
-                            })
-                        else:
-                            raise ValueError(f"Malformed reference '{ref}' at path {new_path}")
-                    except Exception as e:
-                        logger.error(f"Error processing reference in {resource.id}: {str(e)}")
+                    _add_reference(value['reference'], new_path)
                 elif isinstance(value, list):
                     for index, item in enumerate(value):
-                        if isinstance(item, (dict, list)):
+                        # A list of References, e.g. Observation.performer, or of objects that contain References
+                        if _is_reference(item):
+                            _add_reference(item['reference'], new_path + [index])
+                        elif isinstance(item, dict):
                             _extract_from_dict(item, new_path + [index])
                 elif isinstance(value, dict):
                     _extract_from_dict(value, new_path)
+
+        def _add_reference(ref, path):
+            """
+            Add a reference to references: Type/id as canonical, Type?parameters as logical, anything else is logged
+            as malformed and left alone.
+
+            :param ref: The reference text.
+            :param path: The path of the Reference in the resource, e.g. ['performer', 0].
+            """
+            try:
+                if '/' in ref and ref.split('/')[1]:
+                    references.append({
+                        'type': 'canonical',
+                        'resource_type': ref.split('/')[0],
+                        'resource_id': ref.split('/')[1],
+                        'path': path
+                    })
+                elif '?' in ref:
+                    references.append({
+                        'type': 'logical',
+                        'resource_type': ref.split('?')[0],
+                        'params': dict(param.split('=', 1) for param in ref.split('?')[1].split('&')),
+                        'path': path
+                    })
+                else:
+                    raise ValueError(f"Malformed reference '{ref}' at path {path}")
+            except Exception as e:
+                logger.error(f"Error processing reference in {resource.id}: {str(e)}")
 
         _extract_from_dict(resource_dict, [])
         if references:
@@ -434,40 +530,60 @@ class ResourceBundler:
 
         return resource
 
-    @staticmethod
-    def get_primary_identifier(resource: Resource, system: Optional[str] = None) -> Identifier:
+    def _identifier(self, resource: Resource) -> Identifier:
         """
-        Get the identifier of a FHIR resource.
+        The identifier that counts for a resource's request and for references to it, according to identifier_system
+        and on_missing_identifier_system of its type.
+
+        :param resource: The resource.
+        :type resource: Resource
+        :return: The identifier.
+        :rtype: Identifier
+        :raises ValueError: See get_primary_identifier().
+        """
+        resource_type = resource.get_resource_type()
+        bundling = self.config.bundling
+        return self.get_primary_identifier(resource, bundling.identifier_system_for(resource_type),
+                                           bundling.on_missing_identifier_system_for(resource_type))
+
+    @staticmethod
+    def get_primary_identifier(resource: Resource, system: Optional[str] = None,
+                               on_missing_system: str = "error") -> Identifier:
+        """
+        Get the identifier of a FHIR resource: the one with the given system, or the first one without a system.
 
         :param resource: FHIR resource to get identifier from.
         :type resource: Resource
-        :param system: Identifier system to match (optional).
+        :param system: Identifier system to match (optional). For resource types with a single identifier, it must
+            have this system.
         :type system: Optional[str]
+        :param on_missing_system: No identifier with the system: 'error' raises, 'first' logs a warning and returns
+            the first identifier.
+        :type on_missing_system: str
         :return: Identifier of the FHIR resource.
         :rtype: Identifier
-        :raises ValueError: If the resource has no identifier.
+        :raises ValueError: If the resource type has no identifier element, the resource has no identifier, or (with
+            on_missing_system error) none with the system.
         """
-        resource_ref = f"{resource.get_resource_type()}/{resource.id}"
-        identifier_field = resource.model_fields.get('identifier')
-        if not identifier_field:
-            raise ValueError(f"Resource type {resource.get_resource_type()} has no identifier field ({resource_ref}).")
+        resource_type = resource.get_resource_type()
+        resource_ref = f"{resource_type}/{resource.id}"
+        if 'identifier' not in type(resource).model_fields:
+            raise ValueError(f"Resource type {resource_type} has no identifier field ({resource_ref}).")
         if not resource.identifier:
             raise ValueError(f"Resource {resource_ref} has no identifier.")
-        if 'List' in str(identifier_field.annotation):
-            if system is not None:
-                for identifier in resource.identifier:
-                    if identifier.system == system:
-                        return identifier
-                logger.warning(f"Identifier system {system} was not found in resource {resource_ref}. Falling back "
-                               f"to first identifier entry.")
-            return resource.identifier[0]
-        elif 'Identifier' in str(identifier_field.annotation):
-            if system is not None and resource.identifier.system != system:
-                logger.warning(f"Identifier system {system} was not found in resource {resource_ref}. Using its "
-                               f"only identifier.")
-            return resource.identifier
-        else:
-            raise ValueError(f"Unknown identifier field data type in resource type {resource.get_resource_type()}.")
+        # Most resource types have a list of identifiers, some (e.g. QuestionnaireResponse) a single one
+        identifiers = resource.identifier if isinstance(resource.identifier, list) else [resource.identifier]
+        if system is None:
+            return identifiers[0]
+        for identifier in identifiers:
+            if identifier.system == system:
+                return identifier
+        message = f"Resource {resource_ref} has no identifier with system {system}"
+        if on_missing_system == "error":
+            raise ValueError(f"{message}. Set bundling.resources.{resource_type}.on_missing_identifier_system to first "
+                             f"to use its first identifier instead.")
+        logger.warning(f"{message}, its first identifier ({identifiers[0].system}) is used.")
+        return identifiers[0]
 
     def create_entry_request(self, resource: Resource) -> BundleEntryRequest:
         """
@@ -486,12 +602,12 @@ class ResourceBundler:
             # A create always targets the resource type, the identifier is only used for the ifNoneExist condition
             url = resource_type
             if request.condition == 'ifNoneExist':
-                identifier = self.get_primary_identifier(resource)
+                identifier = self._identifier(resource)
                 # Only the query part of the search URL, as defined for Bundle.entry.request.ifNoneExist
                 if_none_exist = f"identifier={identifier.system}|{identifier.value}"
         else:
             if request.url == 'identifier':
-                identifier = self.get_primary_identifier(resource)
+                identifier = self._identifier(resource)
                 url = f"{resource_type}?identifier={identifier.system}|{identifier.value}"
             else:
                 url = f"{resource_type}/{resource.id}"

@@ -100,12 +100,120 @@ target:
                               "0 rejected")
 
 
-# README "Exit codes and logging": 2 means an invalid command line, here without -q
+# README "Exit codes and logging": 2 means an invalid command line, here a server source without -q and without
+# source.searches
 def test_missing_query(tmp_path):
+    (tmp_path / "config.yaml").write_text("""
+source:
+  base_url: https://gics.example/fhir
+target:
+  mode: file
+  outdir: ./out
+""")
+
     result = fhirsync(cwd=tmp_path)
 
     assert result.returncode == 2
-    assert "the following arguments are required: -q/--query" in result.stderr
+    assert "no search: give -q/--query or configure source.searches in config.yaml" in result.stderr
+
+
+# README "Usage": without -q, the searches of source.searches are run, one after another
+def test_configured_searches(tmp_path, source_server):
+    (tmp_path / "config.yaml").write_text(f"""
+source:
+  base_url: {source_server}
+  searches:
+    - Consent?domain:identifier=MII
+    - ResearchStudy
+target:
+  mode: file
+  outdir: ./out
+""")
+
+    result = fhirsync(cwd=tmp_path)
+
+    assert result.returncode == 0
+    assert result.stderr.count("fhirsync.bundler: Started Processing") == 2
+
+
+# README "Usage": -q replaces source.searches for this run
+def test_query_replaces_configured_searches(tmp_path, source_server):
+    (tmp_path / "config.yaml").write_text(f"""
+source:
+  base_url: {source_server}
+  searches:
+    - Consent?domain:identifier=MII
+    - ResearchStudy
+target:
+  mode: file
+  outdir: ./out
+""")
+
+    result = fhirsync("-q", "Patient", cwd=tmp_path)
+
+    assert result.returncode == 0
+    assert result.stderr.count("fhirsync.bundler: Started Processing") == 1
+
+
+# README "Usage": with a source of type files, fhirsync syncs the resources of the files
+def test_files_source(tmp_path):
+    (tmp_path / "input").mkdir()
+    (tmp_path / "input" / "patient.json").write_text(
+        '{"resourceType": "Patient", "id": "p1", "identifier": [{"system": "http://hospital.example/sid/patient", '
+        '"value": "0012345"}]}')
+    (tmp_path / "config.yaml").write_text("""
+source:
+  type: files
+  directory: ./input
+target:
+  mode: file
+  outdir: ./out
+""")
+
+    result = fhirsync(cwd=tmp_path)
+
+    assert result.returncode == 0
+    assert len(list((tmp_path / "out").iterdir())) == 1
+
+
+# README "Exit codes and logging": -q with a source of type files is an invalid command line
+def test_query_with_files_source(tmp_path):
+    (tmp_path / "input").mkdir()
+    (tmp_path / "config.yaml").write_text("""
+source:
+  type: files
+  directory: ./input
+target:
+  mode: file
+  outdir: ./out
+""")
+
+    result = fhirsync("-q", "Patient", cwd=tmp_path)
+
+    assert result.returncode == 2
+    assert "-q/--query needs a source of type server" in result.stderr
+
+
+# README "Exit codes and logging": 1 also means a missing reference with on_missing_reference error (the default)
+def test_missing_reference(tmp_path):
+    (tmp_path / "input").mkdir()
+    (tmp_path / "input" / "observation.json").write_text(
+        '{"resourceType": "Observation", "id": "o1", "status": "final", "code": {"text": "Hb"}, '
+        '"subject": {"reference": "Patient/p1"}}')
+    (tmp_path / "config.yaml").write_text("""
+source:
+  type: files
+  directory: ./input
+target:
+  mode: file
+  outdir: ./out
+""")
+
+    result = fhirsync(cwd=tmp_path)
+
+    assert result.returncode == 1
+    assert "Traceback (most recent call last)" in result.stderr
+    assert "MissingReferenceError: Reference Patient/p1 of Observation/o1 not found in the source" in result.stderr
 
 
 # README "Exit codes and logging": 2 means an invalid configuration, all problems are logged

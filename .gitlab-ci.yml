@@ -11,7 +11,7 @@ stages:
   - release
 
 default:
-  image: ghcr.io/astral-sh/uv:python3.12-alpine
+  image: ghcr.io/astral-sh/uv:python3.13-alpine
   tags:
     - python
   cache:

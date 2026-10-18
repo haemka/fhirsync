@@ -1,6 +1,8 @@
 # fhirsync configuration example
 #
-# Copy this file to config.yaml (the default path, or give another one with -c) and adapt it.
+# Copy this file to config.yaml (the default path, or give another one with -c) and adapt it. Run it with
+#     uv run fhirsync -c config.yaml           (the searches of source.searches, or the files of a files source)
+#     uv run fhirsync -c config.yaml -q '...'  (this search instead of source.searches)
 #
 # General notes
 # - Unknown variables are errors, with a suggestion for likely typos ("did you mean 'size'?").
@@ -31,10 +33,15 @@ common:
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-# source: the FHIR server resources are fetched from (e.g. the gICS TTP-FHIR Gateway). Required.
+# source: where the resources come from. Required.
+# A FHIR server (type server, e.g. the gICS TTP-FHIR Gateway), or FHIR files (type files, see the end of this
+# section). The settings of the other type are errors.
 # ----------------------------------------------------------------------------------------------------------------------
 source:
-  # Base URL of the FHIR endpoint. Required.
+  # server or files. Optional, default: server.
+  type: server
+
+  # Base URL of the FHIR endpoint. Required with type server.
   base_url: https://gicsserver/ttp-fhir/fhir/gics/
 
   # Authentication. Optional, without it requests are sent unauthenticated. Either:
@@ -65,8 +72,8 @@ source:
   # - "common" applies to all resource types, a resource type's own parameters override single common parameters and
   #   add to them.
   # - A list value repeats the parameter: _include: [Consent:patient, Consent:organization]
-  # - They are added to the query given with -q, whose own parameters take precedence, and to searches for
-  #   references written as Type?..., where the parameters configured here take precedence.
+  # - They are added to the searches below and to the search given with -q, whose own parameters take precedence, and
+  #   to searches for references written as Type?..., where the parameters configured here take precedence.
   request_params:
     common:
       # _lastUpdated: ge2025-03-18
@@ -75,6 +82,34 @@ source:
       category: http://fhir.de/ConsentManagement/CodeSystem/ResultType|consent-status
     ResearchStudy:
       _profile: http://fhir.de/ConsentManagement/StructureDefinition/Domain/ResearchStudy
+
+  # The searches of a run, one after another: <Type> or <Type>?<parameters>, relative to base_url, not URL encoded.
+  # Optional, but without searches every run needs -q, which replaces them. Unknown resource types are errors.
+  searches:
+    - Consent
+
+  # --- type files ---------------------------------------------------------------------------------------------------
+  # Instead of the server settings above (an example, with the defaults):
+  # type: files
+  # # The directory with the FHIR files. Required with type files. The files are read when fhirsync starts.
+  # directory: /data/export
+  # # File name patterns (*, ?, [seq], case-sensitive). Default: all formats fhirsync reads. .xml needs the extra xml
+  # # (uv sync --extra xml). Every file must be .json (a resource), .ndjson (a resource per line) or .xml, each
+  # # optionally .gz.
+  # patterns: ["*.json", "*.ndjson", "*.xml", "*.json.gz", "*.ndjson.gz", "*.xml.gz"]
+  # # Also read the files of all subdirectories, hidden files (.name), and subdirectories that are symbolic links.
+  # recursive: false
+  # include_hidden: false
+  # follow_symlinks: false
+  # # A Bundle in a file gives the resources of its entries; false: the Bundle itself is a result.
+  # unpack_bundles: true
+  # # An invalid file, line or resource: raise stops the run, skip logs a warning and continues.
+  # on_error: raise
+  # # The resource types that are results. Optional, default: all. The others are only used as reference targets,
+  # # e.g. [Consent] syncs the Consents with the ResearchStudies they reference, not every ResearchStudy on its own.
+  # resource_types: [Consent]
+  # References are resolved from the files by type and id; references written as Type?... can't be resolved from
+  # files (see bundling.resources.on_missing_reference).
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -110,9 +145,9 @@ bundling:
     # Bundle.type: transaction (all entries succeed or fail together), batch (entries are independent) or
     # collection (no requests are executed, e.g. for files). Optional, default: transaction.
     type: transaction
-    # Number of search results per Bundle. Optional, default: 1. Each search result brings the resources it references
-    # into the same Bundle, so a Bundle contains more entries than this. 1 is the safest choice: a failing Bundle
-    # affects only one search result. 0 puts all results of one search page into one Bundle.
+    # Number of results per Bundle. Optional, default: 1. Each result brings the resources it references into the
+    # same Bundle, so a Bundle contains more entries than this. 1 is the safest choice: a failing Bundle affects only
+    # one result. 0 puts all results of one search page (with type files: of one file) into one Bundle.
     size: 1
     # System of Bundle.identifier. The value is a random UUID, which is also the file name with target mode file.
     # Optional, default: http://www.uniklinikum-jena.de/fhir/sid/consentBundle
@@ -133,7 +168,7 @@ bundling:
         # - id: PUT <Type>/<source id>, the target uses the source server's ids.
         # Ignored (with a warning) with post, which always targets the resource type.
         url: identifier
-        # Condition for post (no default): ifNoneExist creates the resource only if none with its first identifier
+        # Condition for post (no default): ifNoneExist creates the resource only if none with its identifier
         # exists on the target. Ignored (with a warning) with put.
         # condition: ifNoneExist
 
@@ -149,6 +184,19 @@ bundling:
       # A resource type's own list replaces this one completely; use an empty list ([]) to follow all references.
       # Here: gICS's Patient only carries the pseudonym, the Consent rules point to the hospital's patient instead.
       ignore_references_to: [Patient]
+
+      # A reference from resources of this type that the source doesn't have: a Type/id the server answers with 404
+      # or the files don't contain, or a Type?... reference whose search finds nothing (with files: every one).
+      # error (default) stops the run; warning logs it, leaves the reference unchanged and continues.
+      on_missing_reference: error
+
+      # The system of the identifier that counts for the requests of this type (url identifier, ifNoneExist) and for
+      # references to it. Optional, default: none, the FIRST identifier counts. With a system, the identifier with
+      # that system counts, wherever it is in the list.
+      # identifier_system: http://www.uniklinikum-jena.de/fhir/sid/patient
+      # No identifier with identifier_system: error (default) stops the run; first logs a warning and uses the first
+      # identifier. Only used with identifier_system.
+      # on_missing_identifier_system: error
 
     # ResearchStudies (the gICS consent domain) are only created once and never updated.
     ResearchStudy:

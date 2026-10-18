@@ -17,11 +17,13 @@ def test_project_structure():
         "fhirsync/config.py",
         "fhirsync/bundler.py",
         "fhirsync/rules.py",
+        "fhirsync/sources.py",
         "docs/rules.md",
         "tests/config",
         "tests/rules",
         "tests/cookbook",
         "tests/bundling",
+        "tests/sources",
         "tests/library",
         "tests/cli",
         "tests/connections",
@@ -30,19 +32,26 @@ def test_project_structure():
         "tests/conftest.py",
         "tests/data",
         "config-example.yaml",
+        "ci/verify_published_package.py",
+        ".gitlab-ci.yml",
         "ARCHITECTURE.md",
     ]:
         assert os.path.exists(os.path.join(REPO, path)), path
 
 
-# README "Requirements": Python 3.12 or newer
+# README "Requirements": Python 3.13 or newer
 def test_python_version():
-    assert PYPROJECT["project"]["requires-python"] == ">=3.12"
+    assert PYPROJECT["project"]["requires-python"] == ">=3.13"
 
 
 # README "Usage": the command is fhirsync
 def test_command_name():
     assert PYPROJECT["project"]["scripts"] == {"fhirsync": "fhirsync.cli:run"}
+
+
+# README "Installation": the extra xml installs dic-helper-toolkit's XML support for reading FHIR XML files
+def test_xml_extra():
+    assert PYPROJECT["project"]["optional-dependencies"] == {"xml": ["dic-helper-toolkit[xml]>=1.0.0"]}
 
 
 # README "Installation": uv sync also installs pytest and responses from the dev dependency group

@@ -111,3 +111,45 @@ def test_empty_common_search_parameters(tmp_path):
     """)
 
     assert config.source.request_params_for("Consent") == {"domain:identifier": "MII"}
+
+
+# README settings reference: identifier_system defaults to none (the first identifier counts) and
+# on_missing_identifier_system to error; common applies to all types, a type's own setting overrides it
+def test_identifier_system_per_type(tmp_path):
+    config = write_and_load_config(tmp_path, """
+        source:
+          base_url: https://gics.example/fhir
+        target:
+          mode: file
+          outdir: ./out
+        bundling:
+          resources:
+            common:
+              identifier_system: http://hospital.example/sid/common
+            Patient:
+              identifier_system: http://hospital.example/sid/patient
+              on_missing_identifier_system: first
+    """)
+
+    assert config.bundling.identifier_system_for("Patient") == "http://hospital.example/sid/patient"
+    assert config.bundling.identifier_system_for("Consent") == "http://hospital.example/sid/common"
+    assert config.bundling.on_missing_identifier_system_for("Patient") == "first"
+    assert config.bundling.on_missing_identifier_system_for("Consent") == "error"
+
+
+# README settings reference: on_missing_identifier_system has no effect without identifier_system, a warning
+def test_on_missing_identifier_system_without_identifier_system(tmp_path, caplog):
+    write_and_load_config(tmp_path, """
+        source:
+          base_url: https://gics.example/fhir
+        target:
+          mode: file
+          outdir: ./out
+        bundling:
+          resources:
+            Patient:
+              on_missing_identifier_system: first
+    """)
+
+    assert caplog.messages[0].endswith("bundling.resources.Patient.on_missing_identifier_system: ignored, not used "
+                                       "without identifier_system")

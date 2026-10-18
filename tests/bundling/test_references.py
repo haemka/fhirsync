@@ -1,7 +1,10 @@
 import logging
 
 import pytest
-from support import GICS_RULES, SOURCE_BASE_URL, entries, run_bundler
+import responses
+from support import GICS_RULES, SOURCE_BASE_URL, entries, read_bundles, run_bundler, write_and_load_config
+
+from fhirsync import MissingReferenceError, ResourceBundler
 
 # The recorded gICS Consents reference their ResearchStudy in an extension and their gICS Patient in patient.reference.
 
@@ -162,6 +165,60 @@ def test_ignored_references(tmp_path):
     assert entries(bundles, "Patient") == []
     for entry in entries(bundles, "Consent"):
         assert entry["resource"]["patient"]["reference"].startswith("Patient/")
+
+
+# README "How it works": references held directly in a list (here Observation.performer) are followed and rewritten
+# like any other reference
+def test_references_in_a_list(tmp_path):
+    config = write_and_load_config(tmp_path, f"""
+        source:
+          base_url: https://source.example/fhir
+        target:
+          mode: file
+          outdir: {tmp_path}/out
+    """)
+    observation = {"resourceType": "Observation", "id": "o1", "status": "final", "code": {"text": "Hb"},
+                   "identifier": [{"system": "http://hospital.example/sid/observation", "value": "o1"}],
+                   "performer": [{"reference": "Practitioner/pr1"}, {"reference": "Organization/org1"}]}
+    practitioner = {"resourceType": "Practitioner", "id": "pr1",
+                    "identifier": [{"system": "http://hospital.example/sid/practitioner", "value": "pr1"}]}
+    organization = {"resourceType": "Organization", "id": "org1",
+                    "identifier": [{"system": "http://hospital.example/sid/organization", "value": "org1"}]}
+
+    with responses.RequestsMock() as source:
+        source.add("GET", "https://source.example/fhir/Observation",
+                   json={"resourceType": "Bundle", "type": "searchset", "entry": [{"resource": observation}]})
+        source.add("GET", "https://source.example/fhir/Practitioner/pr1", json=practitioner)
+        source.add("GET", "https://source.example/fhir/Organization/org1", json=organization)
+        ResourceBundler(config).fetch_resources("Observation")
+    bundles = read_bundles(tmp_path / "out")
+
+    assert len(entries(bundles, "Practitioner")) == 1
+    assert len(entries(bundles, "Organization")) == 1
+    assert entries(bundles, "Observation")[0]["resource"]["performer"] == [
+        {"reference": "Practitioner?identifier=http://hospital.example/sid/practitioner|pr1"},
+        {"reference": "Organization?identifier=http://hospital.example/sid/organization|org1"},
+    ]
+
+
+# README settings reference: a missing reference in a list is handled by on_missing_reference like any other
+def test_missing_reference_in_a_list(tmp_path):
+    config = write_and_load_config(tmp_path, f"""
+        source:
+          base_url: https://source.example/fhir
+        target:
+          mode: file
+          outdir: {tmp_path}/out
+    """)
+    observation = {"resourceType": "Observation", "id": "o1", "status": "final", "code": {"text": "Hb"},
+                   "performer": [{"reference": "Practitioner/pr1"}]}
+
+    with responses.RequestsMock() as source:
+        source.add("GET", "https://source.example/fhir/Observation",
+                   json={"resourceType": "Bundle", "type": "searchset", "entry": [{"resource": observation}]})
+        source.add("GET", "https://source.example/fhir/Practitioner/pr1", status=404)
+        with pytest.raises(MissingReferenceError, match="Reference Practitioner/pr1 of Observation/o1 not found"):
+            ResourceBundler(config).fetch_resources("Observation")
 
 
 # docs/rules.md 8: absolute URLs and #contained references are not followed, an error is logged

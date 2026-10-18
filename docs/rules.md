@@ -1,8 +1,8 @@
 # Processing rules and the expression language
 
-fhirsync copies FHIR resources from a source server to a target. On the way, every resource can be **filtered** and
-**changed** by rules. You configure the rules in the `processing.rules` section of the configuration file (see
-[config-example.yaml](../config-example.yaml) and the [README](../README.md)).
+fhirsync copies FHIR resources from a source (a FHIR server or FHIR files) to a target. On the way, every resource can
+be **filtered** and **changed** by rules. You configure the rules in the `processing.rules` section of the
+configuration file (see [config-example.yaml](../config-example.yaml) and the [README](../README.md)).
 
 This document explains:
 
@@ -25,11 +25,11 @@ This document explains:
 
 ## 1. When rules run
 
-For every resource of a search result, fhirsync runs this pipeline:
+For every result (a resource of a search result, or a resource from the files), fhirsync runs this pipeline:
 
 ```mermaid
 flowchart TD
-    entry["search result entry"] --> outcome{"OperationOutcome?"}
+    entry["result: search result entry<br/>or resource from the files"] --> outcome{"OperationOutcome?"}
     outcome -- yes --> dropped["its issues are logged,<br/>the entry is dropped"]
     outcome -- no --> filter["<b>filter</b><br/>skip, extract, python"]
     filter -- "skipped" --> left_out["the resource and everything<br/>it references is left out"]
@@ -432,12 +432,15 @@ like `PUT Consent?identifier=<system>|<value>`. That needs an identifier:
 
 The request URL (`PUT Type?identifier=…`), the `ifNoneExist` condition of `post`, and rewritten references all use
 the **first** identifier of a resource. With several identifiers, make sure the one the target uses for matching
-comes first (see [7.6](#76-keep-the-gics-identifier-of-a-researchstudy-and-add-your-own)).
+comes first (see [7.6](#76-keep-the-gics-identifier-of-a-researchstudy-and-add-your-own)), or configure its system as
+`bundling.resources.<Type>.identifier_system`: then the identifier with that system counts, wherever it is (README
+settings reference).
 
 ### References are rewritten before `transform`
 
 With `reference_mode: identifier`, a reference to a resource that is included in the Bundle is rewritten to that
-resource's first identifier: `ResearchStudy/468b…` becomes `ResearchStudy?identifier=<system>|<value>`.
+resource's identifier that counts (the first one, or the one of `identifier_system`): `ResearchStudy/468b…` becomes
+`ResearchStudy?identifier=<system>|<value>`.
 - The identifier is taken **after** the referenced resource's `transform` rules, so identifiers set by rules are used.
 - References to types in `ignore_references_to` are **not followed and not rewritten**. They keep pointing to the
   source server's ids. If the target needs them, set them with a rule, as the gICS rules do for `patient.reference`.

@@ -10,6 +10,7 @@ import re
 from typing import Any, Dict, List, Literal, Optional, Tuple, Type, TypeVar, Union, get_args, get_origin
 
 import yaml
+from fhir.resources.R4B import get_fhir_model_class
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from fhirsync.rules import RuleEngine, RuleSet
@@ -19,6 +20,12 @@ logger = logging.getLogger(__name__)
 ENV_VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?}")
 # Key for settings that apply to all resource types, overridden per resource type
 COMMON = "common"
+# A search: '<Type>' or '<Type>?<parameters>'
+SEARCH = re.compile(r"([A-Za-z]+)(\?.+)?")
+# The settings of each source type; settings of the other type are errors
+SERVER_SETTINGS = ("base_url", "auth", "ca_file", "rfc5280", "next_param", "request_params", "searches")
+FILES_SETTINGS = ("directory", "patterns", "recursive", "include_hidden", "follow_symlinks", "unpack_bundles",
+                  "on_error", "resource_types")
 
 
 class ConfigError(Exception):
@@ -99,14 +106,73 @@ class Common(ConfigModel):
     rfc5280: bool = True
 
 
+def check_resource_type(resource_type: str) -> None:
+    """
+    Check that a name is a FHIR R4B resource type, so that typos are reported at startup.
+
+    :param resource_type: The name, e.g. 'Consent'.
+    :type resource_type: str
+    :raises ValueError: If it is not a resource type (also for data types like 'HumanName').
+    """
+    try:
+        model_class = get_fhir_model_class(resource_type)
+    except ValueError:
+        model_class = None
+    if model_class is None or not model_class.has_resource_base():
+        raise ValueError(f"unknown resource type '{resource_type}'")
+
+
 class Source(ConfigModel):
-    base_url: str
+    """Where the resources come from: a FHIR server (type server) or FHIR files (type files)."""
+    type: Literal["server", "files"] = "server"
+    # type server
+    base_url: Optional[str] = None
     auth: Optional[Auth] = None
     ca_file: Optional[str] = None
     rfc5280: Optional[bool] = None
     next_param: Optional[str] = None
     # Search parameters per resource type, 'common' for all. A list value repeats the parameter.
     request_params: Dict[str, Optional[Dict[str, Union[str, List[str]]]]] = {}
+    # The searches of a run, '<Type>' or '<Type>?<parameters>'; -q replaces them
+    searches: List[str] = []
+    # type files: the files are listed with dic-helper-toolkit's DirectoryReader ...
+    directory: Optional[str] = None
+    patterns: List[str] = ["*.json", "*.ndjson", "*.xml", "*.json.gz", "*.ndjson.gz", "*.xml.gz"]
+    recursive: bool = False
+    include_hidden: bool = False
+    follow_symlinks: bool = False
+    # ... and read with its FHIRFileReader
+    unpack_bundles: bool = True
+    on_error: Literal["raise", "skip"] = "raise"
+    # The resource types that are results, the others only serve as reference targets; empty for all
+    resource_types: List[str] = []
+
+    @model_validator(mode="after")
+    def check_type(self) -> "Source":
+        """
+        Check the settings against the source type: type server needs base_url, type files needs directory, and
+        the settings of the other type are not allowed. Resource types in searches and resource_types must exist.
+
+        :return: The validated section.
+        :rtype: Source
+        :raises ValueError: For a missing base_url or directory, settings of the other type, an invalid search or
+            an unknown resource type.
+        """
+        if self.type == "server" and not self.base_url:
+            raise ValueError("type server needs base_url")
+        if self.type == "files" and not self.directory:
+            raise ValueError("type files needs directory")
+        other = self.explicit(*(FILES_SETTINGS if self.type == "server" else SERVER_SETTINGS))
+        if other:
+            raise ValueError(f"{', '.join(other)} not allowed with type {self.type}")
+        for search in self.searches:
+            match = SEARCH.fullmatch(search)
+            if not match:
+                raise ValueError(f"invalid search '{search}', expected <Type> or <Type>?<parameters>")
+            check_resource_type(match.group(1))
+        for resource_type in self.resource_types:
+            check_resource_type(resource_type)
+        return self
 
     @field_validator("request_params")
     @classmethod
@@ -177,6 +243,12 @@ class ResourceBundling(ConfigModel):
     reference_mode: Optional[Literal["as_is", "identifier"]] = None
     # Resource types whose references from these resources are not followed (replaces the 'common' list)
     ignore_references_to: Optional[List[str]] = None
+    # A reference from these resources whose target can't be found: stop the run, or log a warning and continue
+    on_missing_reference: Optional[Literal["error", "warning"]] = None
+    # The system of the identifier that counts for requests and rewritten references; without it the first one counts
+    identifier_system: Optional[str] = None
+    # No identifier with identifier_system: stop the run, or log a warning and use the first identifier
+    on_missing_identifier_system: Optional[Literal["error", "first"]] = None
 
 
 class BundleSettings(ConfigModel):
@@ -211,6 +283,40 @@ class Bundling(ConfigModel):
         """
         return self._setting_for(resource_type, "reference_mode", "identifier")
 
+    def on_missing_reference_for(self, resource_type: str) -> str:
+        """
+        The effective on_missing_reference of a resource type: its own, otherwise the common one, otherwise error.
+
+        :param resource_type: The resource type.
+        :type resource_type: str
+        :return: 'error' or 'warning'.
+        :rtype: str
+        """
+        return self._setting_for(resource_type, "on_missing_reference", "error")
+
+    def identifier_system_for(self, resource_type: str) -> Optional[str]:
+        """
+        The effective identifier_system of a resource type: its own, otherwise the common one, otherwise none.
+
+        :param resource_type: The resource type.
+        :type resource_type: str
+        :return: The identifier system, None if the first identifier counts.
+        :rtype: Optional[str]
+        """
+        return self._setting_for(resource_type, "identifier_system", None)
+
+    def on_missing_identifier_system_for(self, resource_type: str) -> str:
+        """
+        The effective on_missing_identifier_system of a resource type: its own, otherwise the common one, otherwise
+        error.
+
+        :param resource_type: The resource type.
+        :type resource_type: str
+        :return: 'error' or 'first'.
+        :rtype: str
+        """
+        return self._setting_for(resource_type, "on_missing_identifier_system", "error")
+
     def ignore_references_to_for(self, resource_type: str) -> List[str]:
         """
         The effective ignore_references_to of a resource type: its own list replaces the common one, default none.
@@ -233,13 +339,16 @@ class Bundling(ConfigModel):
 
     def ignored_settings(self) -> List[Tuple[str, str]]:
         """
-        The request settings that don't fit the effective method: url with post, condition with put.
+        The request settings that don't fit the effective method (url with post, condition with put), and
+        on_missing_identifier_system without an effective identifier_system.
 
         :return: The ignored settings as (path below bundling, reason).
         :rtype: List[Tuple[str, str]]
         """
         ignored = []
         for key, settings in self.resources.items():
+            if settings.on_missing_identifier_system is not None and self.identifier_system_for(key) is None:
+                ignored.append((f"resources.{key}.on_missing_identifier_system", "not used without identifier_system"))
             if not settings.request:
                 continue
             method = self.request_for(key).method

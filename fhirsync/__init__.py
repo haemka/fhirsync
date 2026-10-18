@@ -7,9 +7,9 @@ The public API, for applications that run fhirsync from their own code (see READ
 
 The command line is in fhirsync.cli.
 """
-from fhirsync.bundler import ResourceBundler, SyncResult
+from fhirsync.bundler import MissingReferenceError, ResourceBundler, SyncResult
 from fhirsync.config import Config, ConfigError, ConfigModel, load_config, load_yaml
 from fhirsync.rules import RuleError
 
-__all__ = ["Config", "ConfigError", "ConfigModel", "ResourceBundler", "RuleError", "SyncResult", "load_config",
-           "load_yaml"]
+__all__ = ["Config", "ConfigError", "ConfigModel", "MissingReferenceError", "ResourceBundler", "RuleError",
+           "SyncResult", "load_config", "load_yaml"]

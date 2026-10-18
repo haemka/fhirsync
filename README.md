@@ -1,10 +1,10 @@
 # fhirsync
 
-fhirsync copies FHIR resources from a source FHIR server to a target FHIR server or to files. It searches the source,
-follows the references of every result and puts each result together with the resources it references into a FHIR
-Bundle, so every Bundle can be written to the target on its own. On the way, configurable **processing rules** filter
-and change the resources, for example to point references to the target's patients or to give resources stable
-identifiers.
+fhirsync copies FHIR resources from a source FHIR server or from FHIR files to a target FHIR server or to files. It
+searches the source server (or reads the files), follows the references of every result and puts each result together
+with the resources it references into a FHIR Bundle, so every Bundle can be written to the target on its own. On the
+way, configurable **processing rules** filter and change the resources, for example to point references to the
+target's patients or to give resources stable identifiers.
 
 fhirsync is a command line tool and a Python library. Its main use today is syncing patient consents from **gICS**
 (the consent management of the THS Greifswald) to a FHIR server: on demand with the `fhirsync` command, and
@@ -21,6 +21,7 @@ defined by the configuration.
 - [Using fhirsync as a library](#using-fhirsync-as-a-library)
 - [Important behaviour](#important-behaviour)
 - [Syncing gICS consents](#syncing-gics-consents)
+- [Upgrading from fhirsync 0.8 and 0.9](#upgrading-from-fhirsync-08-and-09)
 - [Upgrading from fhirsync 0.7 and older](#upgrading-from-fhirsync-07-and-older)
 - [Testing](#testing)
 - [Project structure](#project-structure), and [ARCHITECTURE.md](ARCHITECTURE.md) for developers
@@ -30,7 +31,7 @@ defined by the configuration.
 
 ```mermaid
 flowchart LR
-    source[("source FHIR server<br/>e.g. gICS TTP-FHIR Gateway")]
+    source[("source: FHIR server<br/>e.g. gICS TTP-FHIR Gateway,<br/>or FHIR files")]
     subgraph fhirsync
         direction TB
         filter["1. filter rules"] --> references["2. follow references<br/>(recursive)"]
@@ -40,33 +41,43 @@ flowchart LR
     end
     target[("target<br/>FHIR server or JSON files")]
 
-    source -- "search results" --> filter
+    source -- "search results<br/>or the resources of the files" --> filter
     references -- "read referenced resources" --> source
     finalize -- "transaction Bundles<br/>PUT / POST" --> target
 ```
 
-For every search result fhirsync:
+For every result (a search result, or a resource from the files) fhirsync:
 
 1. **Filters** it: rules can skip resources or read values from them.
-2. **Follows its references**: resources referenced as `Type/id` are fetched and processed the same way, recursively.
+2. **Follows its references**: resources referenced as `Type/id` are read from the source and processed the same way,
+   recursively. Every Reference counts, wherever it is in the resource, also in lists like `Observation.performer`.
    References to other resources in the Bundle are rewritten to the conditional form
    `Type?identifier=system|value`, so the target links them to its own copies.
 3. **Transforms** it: rules set and remove elements and identifiers.
 4. **Builds the request** of its Bundle entry, by default a conditional update `PUT Type?identifier=system|value`.
 5. **Finalizes** it: rules remove what only the request needed, e.g. the source server's `id`.
 
-A Bundle holds a configurable number of search results with their referenced resources. It is posted to the target
-server, or written to a file.
+A Bundle holds a configurable number of results with their referenced resources. It is posted to the target server,
+or written to a file.
 
-The `fhirsync` command runs one search and syncs its results, for initial loads, re-syncs or tests. Applications run
-the same searches from their own code (see [Using fhirsync as a library](#using-fhirsync-as-a-library)).
+The source is one of two types:
+
+- **`server`**: a FHIR server. fhirsync runs the searches configured in `source.searches`, or the search given with
+  `-q`, one after another, and syncs their results.
+- **`files`**: FHIR files in a directory (JSON, NDJSON or FHIR XML, optionally gzip compressed). All files are read,
+  every resource in them is a result (or only those of `source.resource_types`), and references are resolved from the
+  files.
+
+The `fhirsync` command does one such run, for initial loads, re-syncs, imports or tests. Applications run the same
+from their own code (see [Using fhirsync as a library](#using-fhirsync-as-a-library)).
 
 
 ## Requirements
 
-- **Python 3.12 or newer** and [uv](https://docs.astral.sh/uv/).
+- **Python 3.13 or newer** and [uv](https://docs.astral.sh/uv/).
 - **Access to the GitLab package index** that hosts `dic-helper-toolkit` (see [Installation](#installation)).
-- **A source FHIR server** reachable from the host. For gICS, see [Syncing gICS consents](#syncing-gics-consents).
+- **A source FHIR server** reachable from the host, or **FHIR files**. For gICS, see
+  [Syncing gICS consents](#syncing-gics-consents).
 
 
 ## Installation
@@ -90,19 +101,34 @@ uv sync
 `uv sync` also installs the development tools (`pytest`, `responses`) from the `dev` dependency group. For a
 production installation without them, use `uv sync --no-dev`.
 
+Reading FHIR XML files needs the extra `xml` (it installs `lxml` through `dic-helper-toolkit[xml]`):
+`uv sync --extra xml`, or `fhir-sync[xml]` as a dependency.
+
 
 ## Usage
 
 ```sh
-uv run fhirsync [-c CONFIG] -q QUERY
+uv run fhirsync [-c CONFIG] [-q QUERY]
 ```
 
 | Option | Meaning |
 |---|---|
 | `-c`, `--config` | the configuration file, default: `config.yaml` in the current directory |
-| `-q`, `--query` | a FHIR search, e.g. `Consent?domain:identifier=MII` (required) |
+| `-q`, `--query` | a FHIR search instead of `source.searches`, e.g. `Consent?domain:identifier=MII`; source type `server` only |
 
-### Queries
+### Searches (source type server)
+
+Without `-q`, fhirsync runs the searches of `source.searches`, one after another:
+
+```yaml
+source:
+  base_url: https://gicsserver/ttp-fhir/fhir/gics/
+  searches:
+    - Consent?domain:identifier=MII
+    - ResearchStudy
+```
+
+`-q` replaces them for one run, e.g. for a re-sync or a single patient:
 
 ```sh
 # all consent-status Consents of the MII domain (the category comes from source.request_params)
@@ -115,20 +141,49 @@ uv run fhirsync -c config.yaml -q Consent
 uv run fhirsync -c config.yaml -q 'Consent?domain:identifier=MII&patient.identifier=https://ths-greifswald.de/fhir/gics/identifiers/Pseudonym|1000000001'
 ```
 
-- **The query** is `<ResourceType>` or `<ResourceType>?<parameters>`, relative to `source.base_url`. Quote it in the
-  shell, because of `&` and `|`.
-- **Parameters** configured in `source.request_params` for the resource type are added; the query's own parameters
+- **A search** is `<ResourceType>` or `<ResourceType>?<parameters>`, relative to `source.base_url`. Quote `-q` in the
+  shell, because of `&` and `|`. `-q` takes one search.
+- **Parameters** configured in `source.request_params` for the resource type are added; the search's own parameters
   take precedence.
 - **Paging:** fhirsync pages through all results, following `next` links, or using offsets if `source.next_param` is
   set.
+- **Without `-q` and without `source.searches`** there is nothing to run, which is an invalid command line.
+
+### Files (source type files)
+
+```yaml
+source:
+  type: files
+  directory: /data/export
+  recursive: true
+  resource_types: [Consent]
+```
+
+```sh
+uv run fhirsync -c config.yaml
+```
+
+- **All files are read first**, when fhirsync starts: the files in `directory` (and its subdirectories with
+  `recursive`) whose names match `patterns`, by default all JSON, NDJSON and XML files, also gzip compressed. Hidden
+  files are skipped. A missing directory is an error.
+- **Formats:** `.json` (a resource), `.ndjson` (a resource per line), `.xml` (a resource in FHIR XML, needs the extra
+  `xml`), each optionally `.gz`. Bundles in files give the resources of their entries (`unpack_bundles`).
+- **Results:** every resource of the files, or only those of `resource_types`; the others are then only used when
+  they are referenced. Each file is one page: with `bundling.bundle.size: 0`, one Bundle per file.
+- **References** are resolved from the files, by type and id. A resource that occurs twice is used once, with a
+  warning. References written as `Type?<parameters>` can't be resolved from files (see
+  [Important behaviour](#important-behaviour)).
+- **Invalid files** stop the run (`on_error: raise`), or are skipped with a warning (`on_error: skip`).
+- **`-q`** can't be used with files.
 
 ### Exit codes and logging
 
 - **0** means success.
-- **2** means an invalid command line or configuration. The configuration error is logged with all problems found.
-- **1** means an error while running, e.g. an unreachable server, a failing rule, or a resource without the
-  identifier its request needs (see [Important behaviour](#important-behaviour)). The error is printed with a
-  traceback.
+- **2** means an invalid command line or configuration, e.g. no search for a server source, or `-q` with a files
+  source. The configuration error is logged with all problems found.
+- **1** means an error while running, e.g. an unreachable server, an invalid file, a failing rule, a missing
+  reference, or a resource without the identifier its request needs (see [Important behaviour](#important-behaviour)).
+  The error is printed with a traceback.
 
 Logging goes to standard error, with timestamps, at level `INFO`. Each processed resource, fetched reference and
 written Bundle is logged. At the end, the number of written and rejected Bundles is logged.
@@ -184,7 +239,13 @@ setting overrides it (see below).
 | `common.ca_file` | none (system CAs) | CA certificate file (PEM). If set, only this file is trusted. |
 | `common.rfc5280` | `true` | strict RFC 5280 certificate checks; `false` for non-conforming internal CAs |
 
-**`source`**: the FHIR server to read from (required)
+**`source`**: where the resources come from (required)
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `source.type` | `server` | `server`: a FHIR server; `files`: FHIR files. The settings of the other type are errors. |
+
+With `type: server`:
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -194,6 +255,20 @@ setting overrides it (see below).
 | `source.ca_file`, `source.rfc5280` | `common.*` | TLS settings for this server |
 | `source.next_param` | none | query parameter for offset paging, for servers without `next` links (gICS), e.g. `_offset` |
 | `source.request_params.<common\|Type>.<param>` | none | search parameters added to searches; a list value repeats the parameter |
+| `source.searches` | none | the searches of a run, each `<Type>` or `<Type>?<parameters>`; `-q` replaces them. Unknown resource types are errors. |
+
+With `type: files`:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `source.directory` | required | the directory with the FHIR files |
+| `source.patterns` | `*.json`, `*.ndjson`, `*.xml`, `*.json.gz`, `*.ndjson.gz`, `*.xml.gz` | file name patterns (`*`, `?`, `[seq]`, case-sensitive) of the files to read |
+| `source.recursive` | `false` | also read the files of all subdirectories |
+| `source.include_hidden` | `false` | also read hidden files (`.name`) and hidden subdirectories |
+| `source.follow_symlinks` | `false` | also read subdirectories that are symbolic links |
+| `source.unpack_bundles` | `true` | a Bundle in a file gives the resources of its entries; `false`: the Bundle itself |
+| `source.on_error` | `raise` | an invalid file, line or resource: `raise` stops the run, `skip` logs a warning and continues |
+| `source.resource_types` | all | the resource types that are results; the others are only used as reference targets. Unknown resource types are errors. |
 
 **`target`**: where the Bundles go (required)
 
@@ -210,13 +285,16 @@ setting overrides it (see below).
 | Setting | Default | Meaning |
 |---|---|---|
 | `bundling.bundle.type` | `transaction` | `transaction`, `batch` or `collection` |
-| `bundling.bundle.size` | `1` | search results per Bundle, plus their referenced resources; `0` for one Bundle per search page |
+| `bundling.bundle.size` | `1` | results per Bundle, plus their referenced resources; `0` for one Bundle per search page or file |
 | `bundling.bundle.identifier_system` | `http://www.uniklinikum-jena.de/fhir/sid/consentBundle` | system of `Bundle.identifier`; its value is a random UUID |
 | `bundling.resources.<common\|Type>.request.method` | `put` | `put` (create or update) or `post` (create) |
 | `bundling.resources.<common\|Type>.request.url` | `identifier` | for `put`: `identifier` (`PUT Type?identifier=…`, needs an identifier) or `id` (`PUT Type/<source id>`) |
-| `bundling.resources.<common\|Type>.request.condition` | none | for `post`: `ifNoneExist`, create only if no resource with the first identifier exists |
+| `bundling.resources.<common\|Type>.request.condition` | none | for `post`: `ifNoneExist`, create only if no resource with the identifier that counts exists |
 | `bundling.resources.<common\|Type>.reference_mode` | `identifier` | `identifier`: rewrite references from this type to resources in the Bundle to `Type?identifier=…`; `as_is`: leave them |
 | `bundling.resources.<common\|Type>.ignore_references_to` | `[]` | resource types whose references from this type are not followed (and not rewritten) |
+| `bundling.resources.<common\|Type>.on_missing_reference` | `error` | a reference from this type the source doesn't have: `error` stops the run, `warning` logs it and leaves the reference unchanged |
+| `bundling.resources.<common\|Type>.identifier_system` | none | the system of the identifier that counts for this type's requests, `ifNoneExist` conditions and references to it; none: the first identifier |
+| `bundling.resources.<common\|Type>.on_missing_identifier_system` | `error` | a resource without an identifier of `identifier_system`: `error` stops the run, `first` logs a warning and uses its first identifier. Only with `identifier_system`. |
 
 **`processing`**: filtering and changing resources, see [docs/rules.md](docs/rules.md)
 
@@ -230,7 +308,8 @@ setting overrides it (see below).
 In `source.request_params` and `bundling.resources`, the key `common` applies to all resource types, and a resource
 type's own key overrides it:
 
-- **Single values** (`method`, `url`, `condition`, `reference_mode`) are overridden one by one. With
+- **Single values** (`method`, `url`, `condition`, `reference_mode`, `on_missing_reference`, `identifier_system`,
+  `on_missing_identifier_system`) are overridden one by one. With
   `common.request: {method: put, url: id}` and `Patient.request: {url: identifier}`, Patient gets `put` with
   `identifier`.
 - **Lists** (`ignore_references_to`) are replaced as a whole. `Encounter: {ignore_references_to: []}` follows all
@@ -284,17 +363,19 @@ print(result.bundles, result.entries, result.rejected)
 | API | Meaning |
 |---|---|
 | `load_config(path)` | loads and validates a fhirsync configuration file, as the command does; raises `ConfigError` |
-| `ResourceBundler(config)` | the bundler for a configuration |
-| `ResourceBundler.fetch_resources(search, params=None)` | runs one search like `-q` and returns a `SyncResult` |
+| `ResourceBundler(config)` | the bundler for a configuration; for a files source, all files are read here |
+| `ResourceBundler.run(searches=None)` | runs like the command: the searches of a server source (`searches` instead of `source.searches`, like `-q`), or the files of a files source; returns the added-up `SyncResult` |
+| `ResourceBundler.fetch_resources(search, params=None)` | runs one search of a server source and returns a `SyncResult` |
 | `SyncResult` | `bundles` and `entries` written to files or accepted by the target, `rejected`: Bundles the target answered with 404 |
 | `load_yaml(path, model)`, `ConfigModel` | load an application's own YAML configuration like fhirsync's (see below) |
-| `Config`, `ConfigError`, `RuleError` | the configuration model and the errors |
+| `Config`, `ConfigError`, `RuleError`, `MissingReferenceError` | the configuration model and the errors |
 
 - **Search parameters** in `params` are not URL encoded; a list value repeats the parameter. They take precedence
   over the parameters in `search`, which take precedence over `source.request_params`.
-- **Errors** are raised, as with the command: `RuleError` for a failing rule, `ValueError` for a resource without the
-  identifier its request needs, `requests` exceptions for connection and HTTP errors. A 404 from the target is only
-  counted in `rejected`.
+- **Errors** are raised, as with the command: `RuleError` for a failing rule, `MissingReferenceError` for a missing
+  reference with `on_missing_reference: error`, `ValueError` for a resource without the identifier its request needs
+  and for searches with a files source, `requests` exceptions for connection and HTTP errors, and dic-helper-toolkit's
+  `FHIRFileError` for an invalid file with `on_error: raise`. A 404 from the target is only counted in `rejected`.
 - **Logging** uses the loggers `fhirsync.*` and is not configured by fhirsync; that is up to the application.
 - **Own configuration files:** a class derived from `ConfigModel` and loaded with `load_yaml(path, Model)` gets the
   same behaviour as fhirsync's file: `${…}` environment variables, all errors at once with suggestions for typos, and
@@ -321,11 +402,19 @@ print(result.bundles, result.entries, result.rejected)
 > identity. Resources whose source has no identifier need a `set_identifier` rule; gICS's `consent-status` Consents
 > are an example. Otherwise use `request.url: id` for that type.
 
-> **The first identifier counts.** Request URLs, `ifNoneExist` conditions and rewritten references all use a
-> resource's first identifier.
+> **The first identifier counts,** unless `identifier_system` is configured for the resource type. Request URLs,
+> `ifNoneExist` conditions and rewritten references all use a resource's first identifier, or the one with the
+> configured system. A resource without an identifier of that system stops the run, unless
+> `on_missing_identifier_system: first` is set. This also applies to resource types with a single identifier, such as
+> `QuestionnaireResponse`.
 
 > **A failing rule stops the run**, e.g. a template expression without a result. Invalid rules are already reported
 > at startup.
+
+> **A missing reference stops the run** by default (`on_missing_reference: error`): a referenced `Type/id` the
+> source server answers with 404, or that the files don't contain, and a `Type?<parameters>` reference whose search
+> finds nothing (with files: every such reference). The error names the reference, the resource and the setting.
+> With `on_missing_reference: warning` for the referencing type, the reference is logged and left unchanged.
 
 - **Ignored references are not rewritten.** A reference to a type in `ignore_references_to` keeps pointing to the
   source server's id. Set it with a rule if the target needs it, as the gICS rules do for `Consent.patient`.
@@ -344,6 +433,27 @@ domain `MII`. Its rules reproduce the processing that was built into fhirsync 0.
 The separate project **gics-consent-sync** syncs consents event-driven, from gICS's MQTT notifications. Its README also
 describes what this setup expects from gICS, the tested gICS versions, and how to convert configurations of fhirsync
 0.7 and older.
+
+
+## Upgrading from fhirsync 0.8 and 0.9
+
+fhirsync 0.10 adds FHIR files as a source (`source.type: files`) and searches in the configuration
+(`source.searches`). Existing configurations stay valid: `source.type` defaults to `server`.
+
+- **`-q` is optional:** without it, the searches of `source.searches` are run. A server source without both is an
+  invalid command line (exit code 2) instead of the former "required argument" error.
+- **Missing references stop the run by default** (`on_missing_reference: error`). A `Type/id` reference the server
+  answers with 404 already stopped the run, now with a `MissingReferenceError` instead of an `HTTPError`. **New:** a
+  `Type?<parameters>` reference whose search finds nothing stops the run too; before, it was silently left unchanged.
+  Set `bundling.resources.<common|Type>.on_missing_reference: warning` for the previous behaviour.
+- **References in lists are followed:** References held directly in a list, e.g. `Observation.performer` or
+  `Consent.organization`, were not found before, so they were neither followed nor rewritten. Now they are, like
+  every other reference; a missing one stops the run by default (see above). The gICS rules are not affected: gICS
+  Consents only carry the organization's name.
+- **Choosing the identifier:** `bundling.resources.<common|Type>.identifier_system` picks the identifier with that
+  system for requests and references, instead of the first one. Without it nothing changes.
+- **Library:** `ResourceBundler.run()` runs like the command; `fetch_resources()` is still there for single searches
+  of a server source. `ResourceBundler.source_client` is `None` for a files source.
 
 
 ## Upgrading from fhirsync 0.7 and older
@@ -379,6 +489,7 @@ Each test checks one documented behaviour. A comment above it names the section 
 - **`tests/rules/`:** the rule engine: operations, templates, FHIRPath, variables, startup checks
 - **`tests/cookbook/`:** the cookbook examples of [docs/rules.md](docs/rules.md)
 - **`tests/bundling/`:** the bundler with rules, references, identifiers and requests, on recorded gICS responses
+- **`tests/sources/`:** the source types: files, the searches of a server source, missing references
 - **`tests/library/`:** the library API
 - **`tests/cli/`:** the `fhirsync` command: options, exit codes, logging
 - **`tests/connections/`:** authentication and TLS of the source and target connections
@@ -394,15 +505,19 @@ fhirsync/
   __init__.py      the library API
   cli.py           the fhirsync command
   config.py        configuration: YAML loading, validation, environment variables
-  bundler.py       searching, references, Bundles, requests, output
+  bundler.py       results, references, Bundles, requests, output
+  sources.py       the source types: FHIR server and FHIR files
   rules.py         the processing rule engine
 docs/
   rules.md         processing rules and expression language
 tests/
   config/ rules/ cookbook/ bundling/        tests, see Testing
-  library/ cli/ connections/ project/
+  sources/ library/ cli/ connections/ project/
   support.py, conftest.py                   shared test functions and fixtures
   data/                   resources, rules and recorded responses used by the tests
+ci/
+  verify_published_package.py   CI check of the published package against the registry
 config-example.yaml       documented example configuration
 ARCHITECTURE.md           how fhirsync is built, for developers
+.gitlab-ci.yml            CI pipeline: build, test, publish to the GitLab package registry, tag the release
 ```

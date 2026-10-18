@@ -4,16 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fhir-sync"
-version = "0.9.0"
+version = "0.10.2"
 description = "FHIR resource bundler and synchronization library"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "fhir.resources>=8.0.0",
-    "dic-helper-toolkit>=0.9.10",
+    "dic-helper-toolkit>=1.0.2",
     "fhirpathpy>=2.0",
     "pydantic>=2.0",
     "pyyaml>=6.0"
+]
+
+[project.optional-dependencies]
+# Reading FHIR XML files (source type files)
+xml = [
+    "dic-helper-toolkit[xml]>=1.0.0"
 ]
 
 [project.scripts]

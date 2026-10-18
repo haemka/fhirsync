@@ -288,7 +288,8 @@ def test_bundles_are_posted_to_the_target(tmp_path):
 
 # config-example.yaml: the configured search parameters are also added to the search for a reference written as
 # Type?..., and take precedence over the reference's own. (Processing such references has a known limitation, see
-# docs/rules.md 8; this test only checks the search request.)
+# docs/rules.md 8; this test only checks the search request. The search finds nothing, which on_missing_reference
+# warning allows.)
 def test_search_parameters_for_search_references(tmp_path):
     config = write_and_load_config(tmp_path, f"""
         source:
@@ -304,6 +305,7 @@ def test_search_parameters_for_search_references(tmp_path):
             common:
               request:
                 url: id
+              on_missing_reference: warning
     """)
     observation = {"resourceType": "Observation", "id": "o-1", "status": "final", "code": {"text": "Hb"},
                    "subject": {"reference": "Patient?identifier=http://hospital.example/sid/mrn|0012345&active=false"}}
