@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "fhir.resources>=8.0.0",
-    "dic-helper-toolkit>=1.0.2",
+    "dic-helper-toolkit>=1.0.4",
     "fhirpathpy>=2.0",
     "pydantic>=2.0",
     "pyyaml>=6.0"
@@ -19,7 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 # Reading FHIR XML files (source type files)
 xml = [
-    "dic-helper-toolkit[xml]>=1.0.0"
+    "dic-helper-toolkit[xml]>=1.0.4"
 ]
 
 [project.scripts]
@@ -38,13 +38,3 @@ pythonpath = ["tests"]
 
 [tool.setuptools]
 packages = ["fhirsync"]
-
-# GitLab package registry configuration
-[tool.uv.sources]
-dic-helper-toolkit = { index = "py-dic-helper-toolkit" }
-
-[[tool.uv.index]]
-name = "py-dic-helper-toolkit"
-url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple"
-authenticate = "always"
-explicit = true

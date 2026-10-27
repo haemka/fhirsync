@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_LINK_MODE: copy
+
+jobs:
+  # Computes PROJECT_VERSION from pyproject.toml's version and stamps it into the
+  # built wheel and sdist. On the default branch it is the bare base version (a
+  # release); everywhere else it is a PEP 440 dev release carrying the run number
+  # and commit SHA as local version, e.g. 0.9.7.dev42+g1a2b3c4, so it sorts before
+  # the release it leads up to and is never picked up without --pre.
+  # (The "g" prefix keeps an all-digit SHA from being normalized as a number.)
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      project-version: ${{ steps.version.outputs.project-version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - name: Compute and stamp version
+        id: version
+        run: |
+          BASE_VERSION=$(uv version --short)
+          if [ "${GITHUB_REF#refs/heads/}" = "${{ github.event.repository.default_branch }}" ]; then
+            PROJECT_VERSION="$BASE_VERSION"
+          else
+            PROJECT_VERSION="${BASE_VERSION}.dev${GITHUB_RUN_NUMBER}+g${GITHUB_SHA:0:8}"
+            uv version --frozen "$PROJECT_VERSION"
+          fi
+          echo "project-version=$PROJECT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version $PROJECT_VERSION of the package with uv"
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 90
+
+  # Fails non-default-branch runs if pyproject.toml's version hasn't been bumped
+  # relative to the default branch, so a forgotten bump is caught before merge
+  # rather than causing a PyPI upload collision on the default branch.
+  # NOTE: this is only enforced if the repo's branch protection requires this
+  # check to pass before merging; the job alone is advisory.
+  check-version-bump:
+    runs-on: ubuntu-latest
+    if: github.ref_name != github.event.repository.default_branch
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - name: Compare against default branch
+        run: |
+          git fetch origin "${{ github.event.repository.default_branch }}"
+          CURRENT_VERSION=$(uv version --short)
+          DEFAULT_VERSION=$(git show "origin/${{ github.event.repository.default_branch }}:pyproject.toml" \
+            | python3 -c 'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["project"]["version"])')
+          if [ "$CURRENT_VERSION" = "$DEFAULT_VERSION" ]; then
+            echo "::error::pyproject.toml version ($CURRENT_VERSION) is unchanged from ${{ github.event.repository.default_branch }} ($DEFAULT_VERSION)."
+            echo "::error::Bump the version (e.g. uv version --bump patch) before merging."
+            exit 1
+          fi
+          echo "Version bump OK: ${{ github.event.repository.default_branch }} has $DEFAULT_VERSION, this branch has $CURRENT_VERSION"
+
+  # Tests run against the built wheel (not the source tree), so they exercise
+  # exactly what the package stage is about to publish. pytest and responses are
+  # the dev dependency group of pyproject.toml. The command line tests run the
+  # fhirsync command, so the venv's bin directory must be on PATH.
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - run: |
+          uv venv .venv --clear
+          uv pip install --python .venv "$(ls dist/*.whl)" "pytest>=9.0" "responses>=0.26"
+          PATH="$PWD/.venv/bin:$PATH" .venv/bin/pytest tests/
+
+  # Supply-chain provenance step: publishes the built wheel and sdist to PyPI via
+  # Trusted Publishing (OIDC, no stored token), then re-downloads exactly those
+  # published files and verifies their SHA-256 against both PyPI's index and the
+  # locally built files. The job's artifacts are that verified copy, so every
+  # release is traceable to one specific published artifact rather than to
+  # whatever was sitting in a build runner's local filesystem.
+  # Refuses to publish a version that already exists on PyPI: no silent
+  # duplicate of a past release.
+  publish:
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    if: github.ref_name == github.event.repository.default_branch
+    environment:
+      name: pypi
+      url: https://pypi.org/project/fhir-sync/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Assert version is not already published
+        run: uv run --no-project --with requests ci/verify_published_package.py --assert-absent https://pypi.org/simple dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Verify published artifact checksums
+        run: uv run --no-project --with requests ci/verify_published_package.py https://pypi.org/simple dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-verified
+          path: dist/
+          retention-days: 90
+
+  tag-release:
+    runs-on: ubuntu-latest
+    needs: [build, publish]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-verified
+          path: dist
+      - name: Create tag and GitHub release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ needs.build.outputs.project-version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: dist/*

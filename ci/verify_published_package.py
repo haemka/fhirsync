@@ -1,5 +1,5 @@
 """
-Verify the distribution files in a local dist directory against a GitLab PyPI package registry.
+Verify the distribution files in a local dist directory against the PyPI simple index.
 
 Default mode: every local file must be listed in the registry's simple index, its advertised SHA-256 must match the
 local file, and the file re-downloaded from the registry must hash to the same value. The downloaded copy then
@@ -7,12 +7,12 @@ replaces the local file, so later jobs only ever use the verified published arti
 
 --assert-absent: fail if any of the local files is already listed in the registry (used before publishing a release).
 
-Authenticates with CI_JOB_TOKEN via basic auth as gitlab-ci-token.
+PyPI's simple index is public, so no authentication is needed.
 """
 import argparse
 import hashlib
-import os
 import sys
+import time
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urldefrag, urljoin
@@ -109,7 +109,7 @@ def main() -> int:
     :return: The exit code: 0 if the check passed, 1 otherwise.
     """
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("simple_url", help="Simple index URL of the registry, e.g. .../packages/pypi/simple")
+    parser.add_argument("simple_url", help="Simple index URL of the registry, e.g. https://pypi.org/simple")
     parser.add_argument("dist_dir", type=Path, help="Directory holding the locally built wheel and sdist")
     parser.add_argument("--assert-absent", action="store_true", help="Fail if any local file is already published")
     args = parser.parse_args()
@@ -120,10 +120,10 @@ def main() -> int:
         return 1
 
     session = requests.Session()
-    session.auth = ("gitlab-ci-token", os.environ["CI_JOB_TOKEN"])
-    links = _index_links(session, args.simple_url, _project_name(local_files[0]))
+    project = _project_name(local_files[0])
 
     if args.assert_absent:
+        links = _index_links(session, args.simple_url, project)
         existing = [p.name for p in local_files if p.name in links]
         if existing:
             print(f"ERROR: already published in the registry: {', '.join(existing)}")
@@ -131,6 +131,18 @@ def main() -> int:
             return 1
         print("None of the files are published yet")
         return 0
+
+    # A freshly published project's first files can take a little while to appear in the simple
+    # index (CDN propagation), so retry instead of failing on a single miss.
+    max_attempts = 10
+    retry_delay_seconds = 10
+    links = {}
+    for attempt in range(1, max_attempts + 1):
+        links = _index_links(session, args.simple_url, project)
+        if all(path.name in links for path in local_files):
+            break
+        print(f"Not all files are in the registry index yet (attempt {attempt}/{max_attempts}), retrying...")
+        time.sleep(retry_delay_seconds)
 
     for path in local_files:
         if path.name not in links:

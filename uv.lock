@@ -88,8 +88,8 @@ wheels = [
 
 [[package]]
 name = "dic-helper-toolkit"
-version = "1.0.2"
-source = { registry = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" }
+version = "1.0.4"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
     { name = "charset-normalizer" },
@@ -103,9 +103,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/files/e771d0a2c53cb428a39dc81471c8d076cc30120ffb9fff59539abaa0b9b4fbf6/dic_helper_toolkit-1.0.2.tar.gz", hash = "sha256:e771d0a2c53cb428a39dc81471c8d076cc30120ffb9fff59539abaa0b9b4fbf6" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/51/2e8d1926df78da10088ea3f0c4508568cabed3338f70af21b66b3c1b20f6/dic_helper_toolkit-1.0.4.tar.gz", hash = "sha256:a4e492813d436bac1e918fcf40f2522e459cb4d0b2ef26b82fe30dc96d9745fa", size = 21780, upload-time = "2026-10-27T17:46:18.872Z" }
 wheels = [
-    { url = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/files/94a3df698240554eb958c464d4664ebb7cd11db4ba4476aa2e333e25c604b7ca/dic_helper_toolkit-1.0.2-py3-none-any.whl", hash = "sha256:94a3df698240554eb958c464d4664ebb7cd11db4ba4476aa2e333e25c604b7ca" },
+    { url = "https://files.pythonhosted.org/packages/eb/5f/267213766a6028b82fb082dc2373b4f41f99def0b97b5b02d145719ba0e6/dic_helper_toolkit-1.0.4-py3-none-any.whl", hash = "sha256:1b45184ec260e40fb451aa45af15a2cd75a048e8a88c7bd0c6117ed5361462f1", size = 15639, upload-time = "2026-10-27T17:46:17.414Z" },
 ]
 
 [package.optional-dependencies]
@@ -162,8 +162,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dic-helper-toolkit", specifier = ">=1.0.2", index = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" },
-    { name = "dic-helper-toolkit", extras = ["xml"], marker = "extra == 'xml'", specifier = ">=1.0.0", index = "https://git.diz.med.uni-jena.de/api/v4/projects/354/packages/pypi/simple" },
+    { name = "dic-helper-toolkit", specifier = ">=1.0.4" },
+    { name = "dic-helper-toolkit", extras = ["xml"], marker = "extra == 'xml'", specifier = ">=1.0.4" },
     { name = "fhir-resources", specifier = ">=8.0.0" },
     { name = "fhirpathpy", specifier = ">=2.0" },
     { name = "pydantic", specifier = ">=2.0" },

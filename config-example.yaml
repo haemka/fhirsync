@@ -68,7 +68,8 @@ source:
   # offset parameter your gICS understands, e.g. _offset.
   next_param: _offset
 
-  # Search parameters added to every search, per resource type. Optional.
+  # Search parameters added to every search of a resource type: put what applies to all of them here (e.g. _count,
+  # _profile, a category), and only what is specific to one search into that search (see searches below). Optional.
   # - "common" applies to all resource types, a resource type's own parameters override single common parameters and
   #   add to them.
   # - A list value repeats the parameter: _include: [Consent:patient, Consent:organization]
@@ -85,6 +86,8 @@ source:
 
   # The searches of a run, one after another: <Type> or <Type>?<parameters>, relative to base_url, not URL encoded.
   # Optional, but without searches every run needs -q, which replaces them. Unknown resource types are errors.
+  # A search only says what is fetched: here all Consents, with the domain and category of request_params.Consent;
+  # a second domain would be a second search, e.g. Consent?domain:identifier=OTHER.
   searches:
     - Consent
 

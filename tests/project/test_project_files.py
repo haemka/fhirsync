@@ -33,7 +33,7 @@ def test_project_structure():
         "tests/data",
         "config-example.yaml",
         "ci/verify_published_package.py",
-        ".gitlab-ci.yml",
+        ".github/workflows/ci.yml",
         "ARCHITECTURE.md",
     ]:
         assert os.path.exists(os.path.join(REPO, path)), path
@@ -51,7 +51,7 @@ def test_command_name():
 
 # README "Installation": the extra xml installs dic-helper-toolkit's XML support for reading FHIR XML files
 def test_xml_extra():
-    assert PYPROJECT["project"]["optional-dependencies"] == {"xml": ["dic-helper-toolkit[xml]>=1.0.0"]}
+    assert PYPROJECT["project"]["optional-dependencies"] == {"xml": ["dic-helper-toolkit[xml]>=1.0.4"]}
 
 
 # README "Installation": uv sync also installs pytest and responses from the dev dependency group
@@ -61,9 +61,8 @@ def test_dev_dependency_group():
     assert names == ["pytest", "responses"]
 
 
-# README "Installation": dic-helper-toolkit comes from the GitLab index named py-dic-helper-toolkit
-def test_package_index():
-    indexes = [index["name"] for index in PYPROJECT["tool"]["uv"]["index"]]
-
-    assert "py-dic-helper-toolkit" in indexes
-    assert PYPROJECT["tool"]["uv"]["sources"]["dic-helper-toolkit"] == {"index": "py-dic-helper-toolkit"}
+# README "Installation": all dependencies come from PyPI, there is no other package index; dic-helper-toolkit is
+# required in version 1.0.4 or newer
+def test_dependencies_from_pypi():
+    assert "uv" not in PYPROJECT.get("tool", {})
+    assert "dic-helper-toolkit>=1.0.4" in PYPROJECT["project"]["dependencies"]

@@ -75,7 +75,6 @@ from their own code (see [Using fhirsync as a library](#using-fhirsync-as-a-libr
 ## Requirements
 
 - **Python 3.13 or newer** and [uv](https://docs.astral.sh/uv/).
-- **Access to the GitLab package index** that hosts `dic-helper-toolkit` (see [Installation](#installation)).
 - **A source FHIR server** reachable from the host, or **FHIR files**. For gICS, see
   [Syncing gICS consents](#syncing-gics-consents).
 
@@ -88,15 +87,10 @@ cd fhirsync
 uv sync
 ```
 
-`dic-helper-toolkit` comes from a GitLab package index that requires authentication (`[[tool.uv.index]]` named
-`py-dic-helper-toolkit` in `pyproject.toml`). Give uv the credentials, for example with a GitLab access token with
-the `read_api` scope:
-
-```sh
-export UV_INDEX_PY_DIC_HELPER_TOOLKIT_USERNAME=<username>
-export UV_INDEX_PY_DIC_HELPER_TOOLKIT_PASSWORD=<access token>
-uv sync
-```
+All dependencies come from PyPI, including fhirsync's HTTP and file helpers
+[`dic-helper-toolkit`](https://pypi.org/project/dic-helper-toolkit/). fhirsync itself is published on PyPI as
+[`fhir-sync`](https://pypi.org/project/fhir-sync/); applications add it as a dependency (see
+[Using fhirsync as a library](#using-fhirsync-as-a-library)).
 
 `uv sync` also installs the development tools (`pytest`, `responses`) from the `dev` dependency group. For a
 production installation without them, use `uv sync --no-dev`.
@@ -123,6 +117,11 @@ Without `-q`, fhirsync runs the searches of `source.searches`, one after another
 ```yaml
 source:
   base_url: https://gicsserver/ttp-fhir/fhir/gics/
+  # what applies to every search of a type
+  request_params:
+    Consent:
+      category: http://fhir.de/ConsentManagement/CodeSystem/ResultType|consent-status
+  # what to fetch: only what is specific to each search
   searches:
     - Consent?domain:identifier=MII
     - ResearchStudy
@@ -143,8 +142,12 @@ uv run fhirsync -c config.yaml -q 'Consent?domain:identifier=MII&patient.identif
 
 - **A search** is `<ResourceType>` or `<ResourceType>?<parameters>`, relative to `source.base_url`. Quote `-q` in the
   shell, because of `&` and `|`. `-q` takes one search.
-- **Parameters** configured in `source.request_params` for the resource type are added; the search's own parameters
-  take precedence.
+- **`searches` and `request_params` have different roles.** A search says *what* is fetched: put only what is
+  specific to it into the search, e.g. a domain or a patient. `source.request_params` says *how* every search of a
+  resource type is made: put what applies to all of them there, e.g. `_count`, `_profile` or a `category`. They are
+  added to every search of that type: the `searches`, `-q`, searches of applications such as gics-consent-sync, and
+  searches for `Type?…` references. A parameter given in both places takes the search's value, except for `Type?…`
+  references, where the configured value wins.
 - **Paging:** fhirsync pages through all results, following `next` links, or using offsets if `source.next_param` is
   set.
 - **Without `-q` and without `source.searches`** there is nothing to run, which is an invalid command line.
@@ -254,7 +257,7 @@ With `type: server`:
 | `source.auth.auth_url`, `.realm`, `.client_id`, `.client_secret` | none | OAuth 2.0 via Keycloak; all four or none. With username/password: password flow, otherwise client credentials flow |
 | `source.ca_file`, `source.rfc5280` | `common.*` | TLS settings for this server |
 | `source.next_param` | none | query parameter for offset paging, for servers without `next` links (gICS), e.g. `_offset` |
-| `source.request_params.<common\|Type>.<param>` | none | search parameters added to searches; a list value repeats the parameter |
+| `source.request_params.<common\|Type>.<param>` | none | defaults for every search of the type (`searches`, `-q`, applications, `Type?…` references); a search's own parameters take precedence, except in `Type?…` references; a list value repeats the parameter |
 | `source.searches` | none | the searches of a run, each `<Type>` or `<Type>?<parameters>`; `-q` replaces them. Unknown resource types are errors. |
 
 With `type: files`:
@@ -371,7 +374,8 @@ print(result.bundles, result.entries, result.rejected)
 | `Config`, `ConfigError`, `RuleError`, `MissingReferenceError` | the configuration model and the errors |
 
 - **Search parameters** in `params` are not URL encoded; a list value repeats the parameter. They take precedence
-  over the parameters in `search`, which take precedence over `source.request_params`.
+  over the parameters in `search`, which take precedence over `source.request_params`. As for `searches`: pass what
+  is specific to this search, and leave what applies to every search of the type to `source.request_params`.
 - **Errors** are raised, as with the command: `RuleError` for a failing rule, `MissingReferenceError` for a missing
   reference with `on_missing_reference: error`, `ValueError` for a resource without the identifier its request needs
   and for searches with a files source, `requests` exceptions for connection and HTTP errors, and dic-helper-toolkit's
@@ -516,8 +520,8 @@ tests/
   support.py, conftest.py                   shared test functions and fixtures
   data/                   resources, rules and recorded responses used by the tests
 ci/
-  verify_published_package.py   CI check of the published package against the registry
+  verify_published_package.py   CI check of the package published on PyPI
 config-example.yaml       documented example configuration
 ARCHITECTURE.md           how fhirsync is built, for developers
-.gitlab-ci.yml            CI pipeline: build, test, publish to the GitLab package registry, tag the release
+.github/workflows/ci.yml  CI (GitHub Actions): build, test, publish to PyPI, tag the release
 ```

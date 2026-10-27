@@ -41,7 +41,7 @@ def written_bundles(outdir):
     return bundles
 
 
-# README "Queries": a query is a resource type, the parameters configured for it are added
+# README "Searches": a search is a resource type, the parameters configured for it are added
 def test_query_with_resource_type_only(tmp_path):
     config = write_and_load_config(tmp_path, f"""
         source:
@@ -62,7 +62,7 @@ def test_query_with_resource_type_only(tmp_path):
     assert requested == [f"{SOURCE}/Patient?active=true&_count=50"]
 
 
-# README "Queries": the query's own parameters take precedence over the configured ones
+# README "Searches": the search's own parameters take precedence over the configured ones
 def test_query_parameters_take_precedence(tmp_path):
     config = write_and_load_config(tmp_path, f"""
         source:
@@ -106,7 +106,7 @@ def test_list_value_repeats_the_parameter(tmp_path):
     assert requested == [f"{SOURCE}/Patient?_lastUpdated=ge2025&_lastUpdated=lt2026&_count=50"]
 
 
-# README "Queries": fhirsync pages through all results following next links
+# README "Searches": fhirsync pages through all results following next links
 def test_paging_with_next_links(tmp_path):
     config = write_and_load_config(tmp_path, f"""
         source:
@@ -126,7 +126,7 @@ def test_paging_with_next_links(tmp_path):
     assert len(written_bundles(tmp_path / "out")) == 2
 
 
-# README "Queries": with source.next_param, fhirsync pages with offsets. The next page is requested when a page
+# README "Searches": with source.next_param, fhirsync pages with offsets. The next page is requested when a page
 # is full: fhirsync requests 50 results per page.
 def test_offset_paging_with_next_param(tmp_path):
     config = write_and_load_config(tmp_path, f"""
@@ -148,7 +148,7 @@ def test_offset_paging_with_next_param(tmp_path):
     assert requested == [f"{SOURCE}/Patient?_count=50", f"{SOURCE}/Patient?_count=50&_offset=50"]
 
 
-# README "Queries": offset paging also works with a configured _count, a page is full at that _count.
+# README "Searches": offset paging also works with a configured _count, a page is full at that _count.
 # (Fixed in dic-helper-toolkit 0.9.10.)
 def test_offset_paging_with_configured_count(tmp_path):
     config = write_and_load_config(tmp_path, f"""

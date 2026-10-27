@@ -225,7 +225,8 @@ signer through this API.
 
 ## Connections: dic-helper-toolkit
 
-The HTTP side is in the separate package `dic-helper-toolkit` (module `dic_helpers`), from the GitLab package index:
+The HTTP side is in the separate package [`dic-helper-toolkit`](https://pypi.org/project/dic-helper-toolkit/)
+(module `dic_helpers`, source at github.com/haemka/dic-helper-toolkit), from PyPI:
 
 - **`HTTPClient`** handles authentication and TLS. Basic authentication with username and password. OAuth 2.0 with
   Keycloak: the token endpoint is discovered from `<auth_url>/realms/<realm>/.well-known/openid-configuration`; with
