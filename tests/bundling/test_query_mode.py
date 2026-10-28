@@ -170,10 +170,11 @@ def test_offset_paging_with_configured_count(tmp_path):
         requested = [unquote(call.request.url) for call in source.calls]
 
     assert requested == [f"{SOURCE}/Patient?_count=2", f"{SOURCE}/Patient?_count=2&_offset=2"]
-# README "Upgrading": offset paging is only used when next_param is set; config-example.yaml source.next_param: without it
 
-# README "Upgrading": offset paging is only used when next_param is set; README "Syncing gICS consents": without it
-# a search ends after the first page, and a warning is logged if the Bundle's total shows that results are missing
+
+# README settings reference and config-example.yaml source.next_param: offset paging is only used when next_param is
+# set; without it a search ends after the first page, and a warning is logged if the Bundle's total shows that results
+# are missing
 def test_no_offset_paging_without_next_param(tmp_path, caplog):
     config = write_and_load_config(tmp_path, f"""
         source:

@@ -491,8 +491,7 @@ request was built. `meta.versionId` and other metadata stay; see [7.8](#78-remov
 [config-example.yaml](../config-example.yaml) contains a complete rule set: syncing the `consent-status` Consents of
 gICS to a FHIR server where the patients already exist with a hospital identifier. It combines `extract`, `set`,
 `set_identifier` and `delete` with a stable identifier from content, and reproduces the processing that was built into
-fhirsync 0.7 and older. The separate project gics-consent-sync uses it and explains it rule by rule in
-its README.
+fhirsync 0.7 and older. Its tests are in `tests/cookbook/` and `tests/bundling/`, on a recorded gICS search.
 
 ### 7.3 Skip resources by status
 

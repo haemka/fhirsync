@@ -24,12 +24,12 @@ def run() -> None:
                                                  'them all together.')
     parser.add_argument('-c', '--config', default='config.yaml', help='Path to a YAML configuration file.')
     parser.add_argument('-q', '--query', help='A FHIR search instead of source.searches (source type server only)')
-    # Sync mode moved to gics-consent-sync, the option is only kept for a helpful error message
+    # Sync mode was removed in fhirsync 0.8, the option is only kept for a helpful error message
     parser.add_argument('-s', '--sync', action='store_true', help=argparse.SUPPRESS)
 
     args = parser.parse_args()
     if args.sync:
-        parser.error('sync mode moved to gics-consent-sync, see README "Upgrading from fhirsync 0.7 and older"')
+        parser.error('sync mode (-s) was removed in fhirsync 0.8')
 
     try:
         config = load_config(args.config)

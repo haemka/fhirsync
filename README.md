@@ -6,11 +6,15 @@ with the resources it references into a FHIR Bundle, so every Bundle can be writ
 way, configurable **processing rules** filter and change the resources, for example to point references to the
 target's patients or to give resources stable identifiers.
 
-fhirsync is a command line tool and a Python library. Its main use today is syncing patient consents from **gICS**
-(the consent management of the THS Greifswald) to a FHIR server: on demand with the `fhirsync` command, and
-event-driven with the separate project **gics-consent-sync**, which listens to gICS's MQTT notifications and runs
-fhirsync as a library. Nothing in fhirsync is specific to gICS, though: what happens to the resources is entirely
-defined by the configuration.
+fhirsync is a command line tool and a Python library. Its main use today is syncing patient consents from
+[**gICS**](https://www.ths-greifswald.de/en/researchers-general-public/gics/) (the consent management of the THS
+Greifswald) to a FHIR server; [config-example.yaml](config-example.yaml) is a complete setup for that (see
+[Syncing gICS consents](#syncing-gics-consents)). Nothing in fhirsync is specific to gICS, though: what happens to the
+resources is entirely defined by the configuration.
+
+The FHIR and HTTP side (FHIR client, authentication with OAuth 2.0 or basic authentication, TLS) and reading FHIR files
+come from [dic-helper-toolkit](https://github.com/haemka/dic-helper-toolkit), a separate library of helpers for Data
+Integration Centers.
 
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
@@ -22,9 +26,9 @@ defined by the configuration.
 - [Important behaviour](#important-behaviour)
 - [Syncing gICS consents](#syncing-gics-consents)
 - [Upgrading from fhirsync 0.8 and 0.9](#upgrading-from-fhirsync-08-and-09)
-- [Upgrading from fhirsync 0.7 and older](#upgrading-from-fhirsync-07-and-older)
-- [Testing](#testing)
-- [Project structure](#project-structure), and [ARCHITECTURE.md](ARCHITECTURE.md) for developers
+- [Development](#development): [Testing](#testing), [Project structure](#project-structure), and
+  [ARCHITECTURE.md](ARCHITECTURE.md) for developers
+- [License](#license)
 
 
 ## How it works
@@ -74,41 +78,40 @@ from their own code (see [Using fhirsync as a library](#using-fhirsync-as-a-libr
 
 ## Requirements
 
-- **Python 3.13 or newer** and [uv](https://docs.astral.sh/uv/).
+- **Python 3.13 or newer.**
 - **A source FHIR server** reachable from the host, or **FHIR files**. For gICS, see
   [Syncing gICS consents](#syncing-gics-consents).
 
 
 ## Installation
 
-```sh
-git clone <repository url> fhirsync
-cd fhirsync
-uv sync
+Requires **Python 3.13 or newer**: the strict RFC 5280 certificate checks (`rfc5280: true`, the default) are Python's
+default from 3.13 on.
+
+```shell
+pip install fhir-sync
 ```
 
-All dependencies come from PyPI, including fhirsync's HTTP and file helpers
-[`dic-helper-toolkit`](https://pypi.org/project/dic-helper-toolkit/). fhirsync itself is published on PyPI as
-[`fhir-sync`](https://pypi.org/project/fhir-sync/); applications add it as a dependency (see
-[Using fhirsync as a library](#using-fhirsync-as-a-library)).
+The package is published on [PyPI](https://pypi.org/project/fhir-sync/) and installs the `fhirsync` command. To read
+FHIR XML files, install the `xml` extra: `pip install fhir-sync[xml]`. Applications that use fhirsync as a library add
+`fhir-sync` as a dependency (see [Using fhirsync as a library](#using-fhirsync-as-a-library)). All dependencies,
+including [dic-helper-toolkit](https://pypi.org/project/dic-helper-toolkit/), come from PyPI.
 
-`uv sync` also installs the development tools (`pytest`, `responses`) from the `dev` dependency group. For a
-production installation without them, use `uv sync --no-dev`.
-
-Reading FHIR XML files needs the extra `xml` (it installs `lxml` through `dic-helper-toolkit[xml]`):
-`uv sync --extra xml`, or `fhir-sync[xml]` as a dependency.
+For development, see [Development](#development).
 
 
 ## Usage
 
 ```sh
-uv run fhirsync [-c CONFIG] [-q QUERY]
+fhirsync [-c CONFIG] [-q QUERY]
 ```
 
 | Option | Meaning |
 |---|---|
 | `-c`, `--config` | the configuration file, default: `config.yaml` in the current directory |
 | `-q`, `--query` | a FHIR search instead of `source.searches`, e.g. `Consent?domain:identifier=MII`; source type `server` only |
+
+The sync mode of fhirsync 0.7 and older (`-s`, MQTT notifications) was removed in 0.8; `-s` exits with code 2.
 
 ### Searches (source type server)
 
@@ -131,13 +134,13 @@ source:
 
 ```sh
 # all consent-status Consents of the MII domain (the category comes from source.request_params)
-uv run fhirsync -c config.yaml -q 'Consent?domain:identifier=MII'
+fhirsync -c config.yaml -q 'Consent?domain:identifier=MII'
 
 # all resources of a type, with the parameters configured for it
-uv run fhirsync -c config.yaml -q Consent
+fhirsync -c config.yaml -q Consent
 
 # a single patient's consent status
-uv run fhirsync -c config.yaml -q 'Consent?domain:identifier=MII&patient.identifier=https://ths-greifswald.de/fhir/gics/identifiers/Pseudonym|1000000001'
+fhirsync -c config.yaml -q 'Consent?domain:identifier=MII&patient.identifier=https://ths-greifswald.de/fhir/gics/identifiers/Pseudonym|1000000001'
 ```
 
 - **A search** is `<ResourceType>` or `<ResourceType>?<parameters>`, relative to `source.base_url`. Quote `-q` in the
@@ -145,7 +148,7 @@ uv run fhirsync -c config.yaml -q 'Consent?domain:identifier=MII&patient.identif
 - **`searches` and `request_params` have different roles.** A search says *what* is fetched: put only what is
   specific to it into the search, e.g. a domain or a patient. `source.request_params` says *how* every search of a
   resource type is made: put what applies to all of them there, e.g. `_count`, `_profile` or a `category`. They are
-  added to every search of that type: the `searches`, `-q`, searches of applications such as gics-consent-sync, and
+  added to every search of that type: the `searches`, `-q`, searches of applications that use fhirsync as a library, and
   searches for `Type?…` references. A parameter given in both places takes the search's value, except for `Type?…`
   references, where the configured value wins.
 - **Paging:** fhirsync pages through all results, following `next` links, or using offsets if `source.next_param` is
@@ -163,7 +166,7 @@ source:
 ```
 
 ```sh
-uv run fhirsync -c config.yaml
+fhirsync -c config.yaml
 ```
 
 - **All files are read first**, when fhirsync starts: the files in `directory` (and its subdirectories with
@@ -430,13 +433,22 @@ print(result.bundles, result.entries, result.rejected)
 
 ## Syncing gICS consents
 
-[config-example.yaml](config-example.yaml) is a complete setup for syncing the `consent-status` Consents of a gICS
-domain `MII`. Its rules reproduce the processing that was built into fhirsync 0.7 and older (see
-[docs/rules.md, section 7.2](docs/rules.md#72-a-complete-rule-set-gics-consents)).
+[config-example.yaml](config-example.yaml) is a complete setup for syncing the `consent-status` Consents of a
+[gICS](https://www.ths-greifswald.de/en/researchers-general-public/gics/) domain `MII` from gICS's TTP-FHIR Gateway
+to a FHIR server. Its rules reproduce the processing that was built into fhirsync 0.7 and older (see
+[docs/rules.md, section 7.2](docs/rules.md#72-a-complete-rule-set-gics-consents)). A sync of all consents of the
+domain:
 
-The separate project **gics-consent-sync** syncs consents event-driven, from gICS's MQTT notifications. Its README also
-describes what this setup expects from gICS, the tested gICS versions, and how to convert configurations of fhirsync
-0.7 and older.
+```sh
+fhirsync -c config.yaml -q 'Consent?domain:identifier=MII'
+```
+
+What the setup expects:
+
+- **Signer id type `Pseudonym`, with 10 digit pseudonyms.** The patient id is read from `Consent.patient.display`
+  (`Pseudonym 1000000001`), the only place gICS puts it. Consents with other ids are skipped with a warning.
+- **The target already contains the patients**, with the identifier system `processing.identifier_systems.Patient`.
+  gICS's own Patient resources are not synced (`ignore_references_to: [Patient]`).
 
 
 ## Upgrading from fhirsync 0.8 and 0.9
@@ -460,27 +472,21 @@ fhirsync 0.10 adds FHIR files as a source (`source.type: files`) and searches in
   of a server source. `ResourceBundler.source_client` is `None` for a files source.
 
 
-## Upgrading from fhirsync 0.7 and older
-
-fhirsync 0.8 replaces the INI configuration with YAML, and the processing that was built in is now written as rules.
-Sync mode (`fhirsync -s`) moved to the separate project gics-consent-sync, which uses its own configuration file for
-the MQTT settings. Its converter turns an INI configuration into both files:
+## Development
 
 ```sh
-# in gics-consent-sync
-uv run python tools/convert_ini_config.py config.ini config.yaml gics-consent-sync.yaml
+git clone https://github.com/haemka/fhirsync.git
+cd fhirsync
+uv sync
+uv run fhirsync --help
 ```
 
-Without sync mode, only `config.yaml` is needed. Other changes for query mode:
-- Strict RFC 5280 certificate checks are on by default; set `rfc5280: false` for non-conforming internal CAs.
-- Offset paging is only used when `next_param` is set.
-- `ifNoneExist` conditions use the FHIR standard form `identifier=system|value`.
-- Common and type-specific search parameters are merged parameter by parameter. Before, the type-specific ones
-  replaced the common ones completely.
-- Code that imported the package `sync` imports `fhirsync` now.
+[uv](https://docs.astral.sh/uv/) installs fhirsync with all dependencies and the development tools (`pytest`,
+`responses`) from the `dev` dependency group; `uv sync --extra xml` adds the XML support. Every push runs the tests
+in GitHub Actions; a push to `master` publishes the version in `pyproject.toml` to PyPI.
 
 
-## Testing
+### Testing
 
 ```sh
 uv run pytest tests
@@ -499,10 +505,11 @@ Each test checks one documented behaviour. A comment above it names the section 
 - **`tests/connections/`:** authentication and TLS of the source and target connections
 - **`tests/project/`:** project structure, Python version and dependencies
 
-The recorded gICS responses in `tests/data/` come from gics-consent-sync's real world data tests.
+The recorded gICS responses in `tests/data/` were recorded from a local gICS 2026.1.1 instance with the MII Broad
+Consent template 1.6.d.
 
 
-## Project structure
+### Project structure
 
 ```
 fhirsync/
@@ -523,5 +530,11 @@ ci/
   verify_published_package.py   CI check of the package published on PyPI
 config-example.yaml       documented example configuration
 ARCHITECTURE.md           how fhirsync is built, for developers
+LICENSE                   the MIT License
 .github/workflows/ci.yml  CI (GitHub Actions): build, test, publish to PyPI, tag the release
 ```
+
+
+## License
+
+fhirsync is licensed under the [MIT License](LICENSE).

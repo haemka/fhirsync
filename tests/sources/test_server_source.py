@@ -105,7 +105,7 @@ def test_missing_reference_warning(tmp_path, caplog):
             in caplog.messages)
 
 
-# README "Upgrading": a reference written as Type?<parameters> whose search finds nothing is missing too, an error by
+# README "Upgrading from fhirsync 0.8 and 0.9": a reference written as Type?<parameters> whose search finds nothing is missing too, an error by
 # default (before, it was silently ignored)
 def test_empty_search_reference_is_an_error(tmp_path):
     observation = {**OBSERVATION, "subject": {"reference": "Patient?identifier=http://hospital.example/sid/mrn|1"}}

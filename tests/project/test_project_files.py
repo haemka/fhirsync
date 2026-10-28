@@ -35,6 +35,7 @@ def test_project_structure():
         "ci/verify_published_package.py",
         ".github/workflows/ci.yml",
         "ARCHITECTURE.md",
+        "LICENSE",
     ]:
         assert os.path.exists(os.path.join(REPO, path)), path
 
@@ -54,7 +55,7 @@ def test_xml_extra():
     assert PYPROJECT["project"]["optional-dependencies"] == {"xml": ["dic-helper-toolkit[xml]>=1.0.4"]}
 
 
-# README "Installation": uv sync also installs pytest and responses from the dev dependency group
+# README "Development": uv sync also installs pytest and responses from the dev dependency group
 def test_dev_dependency_group():
     names = [requirement.split(">")[0].split("=")[0] for requirement in PYPROJECT["dependency-groups"]["dev"]]
 
@@ -66,3 +67,16 @@ def test_dev_dependency_group():
 def test_dependencies_from_pypi():
     assert "uv" not in PYPROJECT.get("tool", {})
     assert "dic-helper-toolkit>=1.0.4" in PYPROJECT["project"]["dependencies"]
+
+
+# README "License": fhirsync is MIT licensed; the package metadata (shown on PyPI) names the license, its file, the
+# author and maintainer, and links to the repository
+def test_license_and_package_metadata():
+    project = PYPROJECT["project"]
+
+    assert project["license"] == "MIT"
+    assert project["license-files"] == ["LICENSE"]
+    assert project["authors"] == [{"name": "haemka", "email": "github@haemka.net"}]
+    assert project["maintainers"] == [{"name": "haemka", "email": "github@haemka.net"}]
+    assert project["urls"] == {"Repository": "https://github.com/haemka/fhirsync",
+                               "Issues": "https://github.com/haemka/fhirsync/issues"}

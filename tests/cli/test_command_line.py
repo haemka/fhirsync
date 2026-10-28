@@ -247,12 +247,12 @@ def test_missing_configuration_file(tmp_path):
     assert "Cannot read configuration file" in result.stderr
 
 
-# README "Upgrading from fhirsync 0.7 and older": sync mode moved to gics-consent-sync, -s says so
-def test_sync_mode_moved(tmp_path):
+# README "Usage": sync mode (-s) was removed in fhirsync 0.8, -s says so
+def test_sync_mode_removed(tmp_path):
     result = fhirsync("-s", cwd=tmp_path)
 
     assert result.returncode == 2
-    assert "sync mode moved to gics-consent-sync" in result.stderr
+    assert "sync mode (-s) was removed in fhirsync 0.8" in result.stderr
 
 
 # README "Exit codes and logging": 1 means an error while running, e.g. an unreachable server, with a traceback

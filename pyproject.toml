@@ -1,13 +1,28 @@
 [build-system]
-requires = ["setuptools>=65.0.0", "wheel"]
+requires = ["setuptools>=77.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "fhir-sync"
-version = "0.10.3"
-description = "FHIR resource bundler and synchronization library"
+version = "0.10.4"
+description = "Sync FHIR resources from a FHIR server or FHIR files to a FHIR server or files, as Bundles with configurable processing rules"
 readme = "README.md"
 requires-python = ">=3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "haemka", email = "github@haemka.net" }]
+maintainers = [{ name = "haemka", email = "github@haemka.net" }]
+keywords = ["fhir", "hl7", "bundle", "sync", "fhirpath", "gics", "consent", "mii"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Healthcare Industry",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
 dependencies = [
     "fhir.resources>=8.0.0",
     "dic-helper-toolkit>=1.0.4",
@@ -21,6 +36,10 @@ dependencies = [
 xml = [
     "dic-helper-toolkit[xml]>=1.0.4"
 ]
+
+[project.urls]
+Repository = "https://github.com/haemka/fhirsync"
+Issues = "https://github.com/haemka/fhirsync/issues"
 
 [project.scripts]
 fhirsync = "fhirsync.cli:run"

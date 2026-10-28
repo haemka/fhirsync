@@ -16,7 +16,7 @@ DATA = os.path.join(os.path.dirname(__file__), "data")
 
 # Recorded responses of gICS 2026.1.1 (template MII 1.6.d): the consent-status search of the MII domain with three
 # valid patients and one with the invalid pseudonym 'studypsn42', plus their ResearchStudy and Patients.
-# Recorded with gics-consent-sync's tools/gics_rwd.py.
+# Recorded from a local gICS 2026.1.1 instance.
 RECORDING = os.path.join(DATA, "gics_consent_status_search.json")
 
 # The identifier systems the examples in docs/rules.md use

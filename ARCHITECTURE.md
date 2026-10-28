@@ -27,7 +27,7 @@ configuration filter and change the resources on the way.
 ```mermaid
 flowchart LR
     cli["fhirsync/cli.py<br/>command line"] --> config["fhirsync/config.py<br/>configuration"]
-    app["applications<br/>e.g. gics-consent-sync"] --> api["fhirsync/__init__.py<br/>library API"]
+    app["applications"] --> api["fhirsync/__init__.py<br/>library API"]
     api --> config
     api --> bundler
     config --> rules["fhirsync/rules.py<br/>rule engine"]
@@ -43,9 +43,9 @@ flowchart LR
     bundler --> files[("Bundle files")]
 ```
 
-Nothing in fhirsync is specific to gICS. The gICS specifics are in the configuration (the rules of
-[config-example.yaml](config-example.yaml)) and in the separate project gics-consent-sync, which understands gICS's
-MQTT notifications and runs a search through the library API for each of them.
+Nothing in fhirsync is specific to gICS. The gICS specifics are in the configuration: the rules of
+[config-example.yaml](config-example.yaml). Event-driven syncs, e.g. on gICS's MQTT notifications, belong in an
+application that runs a search through the library API for each event.
 
 
 ## Modules
@@ -219,9 +219,6 @@ Everything else is internal and may change. The command line in [fhirsync/cli.py
 - **Errors are raised, not handled.** The library doesn't decide whether an error ends a process; the command line
   ends with exit code 1, an event-driven application can log the error and continue with the next event.
 
-gics-consent-sync is the first application: it handles gICS's MQTT notifications and runs one consent search per
-signer through this API.
-
 
 ## Connections: dic-helper-toolkit
 
@@ -281,16 +278,15 @@ test is generated from the documentation.
 Shared functions are in [tests/support.py](tests/support.py), shared resources in [tests/conftest.py](tests/conftest.py)
 and [tests/data/](tests/data/).
 
-**Real world data.** The recorded gICS search in `tests/data/gics_consent_status_search.json` comes from the real
-world data tests of gics-consent-sync. Those replay the recordings of all tested gICS versions through this library, so
-a behaviour change of fhirsync shows up there as a replay difference.
+**Real world data.** The recorded gICS search in `tests/data/gics_consent_status_search.json` was recorded from a local
+gICS 2026.1.1 instance with the MII Broad Consent template 1.6.d: the consent-status Consents of three valid patients
+and one with an invalid pseudonym, with their ResearchStudy and Patients. The bundling tests run on it.
 
 
 ## Design decisions
 
 - **Rules in the configuration instead of built-in processing.** fhirsync 0.7 had the gICS processing in the code.
-  It is now the rules of config-example.yaml, and the bundler knows nothing about gICS. The INI converter of
-  gics-consent-sync adds the same rules, so converted configurations behave like 0.7 (tested there with a replay).
+  It is now the rules of config-example.yaml, and the bundler knows nothing about gICS.
 - **FHIRPath for reading, simple element paths for writing.** FHIRPath is the standard for FHIR expressions, but it
   can only read. Writing uses `a.b[0].c` paths, which name exactly one place.
 - **Validate everything at startup, stop on every error while running.** Configuration errors are cheap to fix
@@ -298,9 +294,9 @@ a behaviour change of fhirsync shows up there as a replay difference.
 - **Conditional requests by identifier.** `PUT Type?identifier=…` makes repeated syncs update the same resource, and
   rewritten references let the target link resources without knowing the source ids. This needs stable identifiers,
   which is why a resource without identifier stops the run.
-- **gICS notifications in a separate project.** The bundler is source and target agnostic, the MQTT listener and the
-  gICS notification format are not. gics-consent-sync holds everything gICS specific (notifications, the INI
-  converter, the real world data tests) and uses fhirsync through its library API, so fhirsync has no MQTT dependency.
+- **No sync mode in fhirsync.** The bundler is source and target agnostic, an MQTT listener and the gICS
+  notification format are not. fhirsync 0.8 removed the sync mode of 0.7; event-driven applications use the library
+  API, so fhirsync has no MQTT dependency.
 - **A source interface instead of type checks in the bundler.** Server and files differ only in where results and
   referenced resources come from; everything after that (rules, references, requests, Bundles) is the same code.
 - **Missing references stop the run by default.** A Bundle without the resource a reference points to may be

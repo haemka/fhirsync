@@ -263,7 +263,7 @@ def test_typo_in_section(tmp_path):
         """)
 
 
-# README "Upgrading": the flat bundling settings of the INI format are unknown
+# README "Configuration": unknown variables are errors, e.g. the flat bundling settings of the former INI format
 def test_old_flat_setting(tmp_path):
     with pytest.raises(ConfigError, match="bundling.type: unknown configuration variable"):
         write_and_load_config(tmp_path, """
