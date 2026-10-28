@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - '**'
+  # Run the workflow by hand from the Actions tab ("Run workflow"), e.g. to repeat a run
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
