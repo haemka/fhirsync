@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fhir-sync"
-version = "0.10.2"
+version = "0.10.3"
 description = "FHIR resource bundler and synchronization library"
 readme = "README.md"
 requires-python = ">=3.13"
